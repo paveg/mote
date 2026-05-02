@@ -4,7 +4,7 @@ import type { Message } from "@/core/types";
 
 test("AgentContext can be constructed as an object literal satisfying the interface", () => {
   const noopState: SessionState = {
-    async appendMessages(_messages) {
+    async appendMessages(_sessionId, _messages) {
       // noop for the type test
     },
     async loadLatestSession() {
@@ -36,11 +36,11 @@ test("AgentContext can be constructed as an object literal satisfying the interf
 
 test("SessionState round-trips an empty messages array", async () => {
   const state: SessionState = {
-    async appendMessages(_messages: Message[]) {},
+    async appendMessages(_sessionId: string, _messages: Message[]) {},
     async loadLatestSession() {
       return [];
     },
   };
-  await state.appendMessages([]);
+  await state.appendMessages("s_1", []);
   expect(await state.loadLatestSession()).toEqual([]);
 });

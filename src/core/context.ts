@@ -6,7 +6,7 @@ import type { ToolRegistry } from "@/core/registry";
 // so registry/handlers can typecheck against the contract right now;
 // the implementing class will satisfy this interface.
 export interface SessionState {
-  appendMessages(messages: Message[]): Promise<void>;
+  appendMessages(sessionId: string, messages: Message[]): Promise<void>;
   loadLatestSession(): Promise<Message[]>;
 }
 
