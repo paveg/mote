@@ -30,6 +30,7 @@ import { ToolRegistry as ToolRegistryImpl } from "@/core/registry";
 import { JsonlState } from "@/core/state";
 import { ensureWorkspace } from "@/core/workspace";
 import { createAnthropicProvider } from "@/providers/anthropic";
+import { createOpenAICompatProvider } from "@/providers/openai-compat";
 import type { IterationBudget, Usage } from "@/core/types";
 import { readFileTool } from "@/core/tools/read_file";
 
@@ -42,6 +43,18 @@ export interface BuildContextOpts {
   maxIterations?: number;          // defaults to 50
   initialBudget?: number;          // defaults to 1_000_000 (input+output tokens combined)
   home?: string;                   // injected for tests; defaults to os.homedir()
+}
+
+// Picks the LLM provider implementation based on LLM_PROVIDER env var.
+// Defaults to "anthropic" so existing setups that only set LLM_API_KEY
+// continue to work without change.
+function defaultProvider(): Provider {
+  const providerType = process.env["LLM_PROVIDER"] ?? "anthropic";
+  if (providerType === "anthropic") return createAnthropicProvider();
+  if (providerType === "openai-compat") return createOpenAICompatProvider();
+  throw new Error(
+    `Unknown LLM_PROVIDER: ${JSON.stringify(providerType)} (expected: anthropic | openai-compat)`,
+  );
 }
 
 // Default IterationBudget implementation.
@@ -82,7 +95,7 @@ export async function buildContext(
     return r;
   })();
 
-  const provider = opts.provider ?? createAnthropicProvider();
+  const provider = opts.provider ?? defaultProvider();
   const state = new JsonlState(workspaceDir);
   const signal = opts.signal ?? new AbortController().signal;
 

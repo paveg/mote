@@ -118,3 +118,75 @@ testCtx("buildContext respects custom systemPrompt and maxIterations", async () 
   expectCtx(ctx.systemPrompt()).toBe("custom prompt");
   expectCtx(ctx.opts.maxIterations).toBe(5);
 });
+
+import { test as testProv, expect as expectProv, beforeEach as beforeEachProv, afterEach as afterEachProv } from "bun:test";
+import { mkdtemp as mkdtempProv, rm as rmProv } from "node:fs/promises";
+import { tmpdir as tmpdirProv } from "node:os";
+import { join as joinProv } from "node:path";
+import { buildContext as buildContextProv } from "@/core/context";
+
+let fakeHomeProv: string;
+let savedEnv: Record<string, string | undefined>;
+
+beforeEachProv(async () => {
+  fakeHomeProv = await mkdtempProv(joinProv(tmpdirProv(), "mote-provider-switch-"));
+  savedEnv = {
+    LLM_PROVIDER: process.env["LLM_PROVIDER"],
+    LLM_API_KEY: process.env["LLM_API_KEY"],
+    ANTHROPIC_API_KEY: process.env["ANTHROPIC_API_KEY"],
+    OPENAI_API_KEY: process.env["OPENAI_API_KEY"],
+  };
+});
+
+afterEachProv(async () => {
+  await rmProv(fakeHomeProv, { recursive: true, force: true });
+  for (const [k, v] of Object.entries(savedEnv)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+});
+
+testProv("buildContext defaults to Anthropic when LLM_PROVIDER is unset", async () => {
+  delete process.env["LLM_PROVIDER"];
+  process.env["LLM_API_KEY"] = "sk-ant-test";
+
+  const ctx = await buildContextProv({ home: fakeHomeProv });
+  // Provider was constructed without throwing — that's the assertion.
+  expectProv(ctx.provider).toBeDefined();
+  expectProv(typeof ctx.provider.complete).toBe("function");
+});
+
+testProv("buildContext picks the OpenAI-compat provider when LLM_PROVIDER=openai-compat", async () => {
+  process.env["LLM_PROVIDER"] = "openai-compat";
+  process.env["LLM_API_KEY"] = "sk-oai-test";
+
+  const ctx = await buildContextProv({ home: fakeHomeProv });
+  expectProv(ctx.provider).toBeDefined();
+  expectProv(typeof ctx.provider.complete).toBe("function");
+});
+
+testProv("buildContext throws on an unknown LLM_PROVIDER value", async () => {
+  process.env["LLM_PROVIDER"] = "totally-bogus";
+  process.env["LLM_API_KEY"] = "sk-anything";
+
+  await expectProv(buildContextProv({ home: fakeHomeProv })).rejects.toThrow(
+    /Unknown LLM_PROVIDER/,
+  );
+});
+
+testProv("buildContext respects an injected provider regardless of LLM_PROVIDER", async () => {
+  process.env["LLM_PROVIDER"] = "openai-compat"; // would normally try to construct openai-compat
+  delete process.env["LLM_API_KEY"];
+  delete process.env["OPENAI_API_KEY"];
+  // Without a key, defaultProvider() would throw — but we inject one so it's not called.
+
+  const injected = {
+    complete: async () => ({
+      assistant: { role: "assistant" as const, content: [], createdAt: 0 },
+      toolCalls: [],
+      usage: { input: 0, output: 0 },
+    }),
+  };
+  const ctx = await buildContextProv({ home: fakeHomeProv, provider: injected });
+  expectProv(ctx.provider).toBe(injected);
+});
