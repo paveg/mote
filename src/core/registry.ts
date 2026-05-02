@@ -44,7 +44,7 @@ export class ToolRegistry {
     return [...this.map.values()].map(d => ({
       name: d.name,
       description: d.description,
-      input_schema: toJsonSchema(d.schema) as object,
+      input_schema: toJsonSchema(d.schema, { errorMode: "ignore" }) as object,
     }));
   }
 
