@@ -25,7 +25,7 @@ The agent loop, tool registry, and state can be aggressively thin without losing
 
 - `src/providers/types.ts` — `Provider` interface plus `CompletionRequest` / `CompletionResponse` shapes. Provider-agnostic.
 - `src/providers/anthropic.ts` — uses `@anthropic-ai/sdk` natively. Owns the prompt caching policy (`cache_control` automatically applied to system + `SOUL.md` + `MEMORY.md`) and the thinking-block path. Default. Lands in M0.
-- `src/providers/openai-compat.ts` — covers OpenRouter, vLLM, z.ai, Together, Fireworks, Groq, etc. via the OpenAI chat-completions wire format. **Not added in M0** — only when an actual non-Anthropic use case appears (YAGNI).
+- `src/providers/openai-compat.ts` — covers OpenRouter, vLLM, z.ai, Together, Fireworks, Groq, etc. via the OpenAI chat-completions wire format. Originally deferred from M0 under YAGNI; landed immediately after M0 (commit `2f306d1`, 2026-05-03) to unblock the user's OpenAI / OpenRouter setup. No `openai` npm SDK dependency — direct `fetch`.
 
 Provider-specific behavior (cache_control, thinking, citations) lives **inside** `anthropic.ts` and never leaks into `CompletionRequest`. The agent loop stays provider-agnostic.
 
