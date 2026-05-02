@@ -10,7 +10,7 @@ import type {
   RunResult,
 } from "@/core/types";
 
-test("Role accepts the three valid values", () => {
+test("Role union accepts user, assistant, system as literals (compile-time check)", () => {
   const roles: Role[] = ["user", "assistant", "system"];
   expect(roles).toEqual(["user", "assistant", "system"]);
 });

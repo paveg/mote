@@ -35,7 +35,7 @@ export interface Usage {
 // in core/budget.ts (later); this is just the contract.
 export interface IterationBudget {
   readonly remaining: number;
-  deduct(usage: Usage): void;
+  readonly deduct: (usage: Usage) => void;
 }
 
 export interface RunOptions {
