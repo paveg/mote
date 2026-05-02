@@ -49,3 +49,20 @@ test("ensureWorkspace is idempotent — second call does not throw", async () =>
   );
   expect(sessionsStat.isDirectory()).toBe(true);
 });
+
+test("getWorkspaceDir rejects agentId with path traversal", () => {
+  expect(() => getWorkspaceDir("../bad", fakeHome)).toThrow(/Invalid agentId/);
+  expect(() => getWorkspaceDir("a/b", fakeHome)).toThrow(/Invalid agentId/);
+  expect(() => getWorkspaceDir("", fakeHome)).toThrow(/Invalid agentId/);
+  expect(() => getWorkspaceDir(".", fakeHome)).toThrow(/Invalid agentId/);
+});
+
+test("ensureWorkspace creates directories with mode 0o700", async () => {
+  const dir = await ensureWorkspace("default", fakeHome);
+  const dirStat = await stat(dir);
+  // mask off file-type bits, keep permission bits
+  expect(dirStat.mode & 0o777).toBe(0o700);
+
+  const sessionsStat = await stat(join(dir, "sessions"));
+  expect(sessionsStat.mode & 0o777).toBe(0o700);
+});
