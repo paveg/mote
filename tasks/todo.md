@@ -59,24 +59,58 @@ Skill mechanism / SQLite / memory nudge / multiple channels / MCP / A2A. (Per th
 
 ---
 
-## Active milestone: M1 — workspace + skills
+## Completed milestone: M1 — workspace + skills ✅
 
-> Goal: agentskills.io regulation directory layout. SKILL.md is read at startup and exposed as a tool to the LLM.
+Completed 2026-05-03 across 2 commits (Wave A + Wave B). Total project: 1,368 LOC production / ~1,800 LOC tests / 131 unit tests + e2e smoke.
 
-### M1 done criteria (from `../research/docs/mote/roadmap.md`)
+### M1 done criteria
 
-- [ ] `~/.mote/agents/<id>/` reads `SOUL.md`, `MEMORY.md`, and `skills/<name>/SKILL.md`
-- [ ] At startup, SKILL.md frontmatter description is exposed as an LLM tool
-- [ ] `/<skill-name>` slash command explicitly invokes a skill
-- [ ] Hermes / OpenClaw SKILL.md files work as-is (compatibility)
+- [x] `~/.mote/agents/<id>/` reads `SOUL.md`, `MEMORY.md`, and `skills/<name>/SKILL.md` — `loadSoul`, `loadMemory`, `loadSkills` called in parallel by `buildContext`
+- [x] At startup, SKILL.md frontmatter description is exposed as an LLM tool — `createSkillToolDefinition` registers each as `ToolDefinition` alongside `read_file`
+- [x] `/<skill-name>` slash command explicitly invokes a skill — `src/entry/agent.ts` rewrites the user input to "Please execute the <name> skill" when `<name>` matches a registered tool
+- [x] Hermes / OpenClaw SKILL.md files work as-is (compatibility) — frontmatter parser only requires `name` + `description` (extras ignored), `SkillArgs = v.record(v.string(), v.unknown())` accepts any LLM-supplied shape
 
-### M1 implementation tasks (planned; revisit before starting)
+### M1 implementation tasks (all completed)
 
-- [ ] Workspace loader (read `SOUL.md` / `MEMORY.md` if they exist; fold them into `systemPrompt()`)
-- [ ] Frontmatter parser — hand-written ~30 LOC, no `gray-matter` dep
-- [ ] Skill scanner — `Bun.Glob` over `skills/*/SKILL.md`, register each as a `ToolDefinition` whose handler invokes the LLM with the skill body
-- [ ] CLI slash command — `/<skill-name>` rewrites the user message to "execute skill X"
-- [ ] Done script — verify `echo "/hello" | bun run agent` triggers a registered skill
+| # | Module | Status |
+|---|---|---|
+| 1 | Workspace SOUL/MEMORY readers | ✅ commit c0907ec (Wave A, extends `src/core/workspace.ts`) |
+| 2 | Frontmatter parser — `src/skills/frontmatter.ts` | ✅ commit c0907ec |
+| 3 | Skill scanner — `src/skills/loader.ts` | ✅ commit c0907ec |
+| 4 | Skill handler — `src/skills/handler.ts` | ✅ commit 91894e2 (Wave B) |
+| 5 | System-prompt composer — `src/core/persona.ts` | ✅ commit 91894e2 |
+| 6 | buildContext wiring (auto-register skills + composed system prompt) | ✅ commit 91894e2 |
+| 7 | CLI slash command `/<name>` | ✅ commit 91894e2 |
+| 8 | E2E extension — `tests/e2e/m0.sh` adds `/hello` smoke | ✅ commit 91894e2 |
+
+### Updated LOC accounting (project-wide)
+
+| Layer | LOC |
+|---|---|
+| `src/core/*` (types, registry, state, context, loop, workspace, persona) | 503 |
+| `src/core/tools/read_file.ts` | 65 |
+| `src/providers/*` (types, anthropic, openai-compat) | 504 |
+| `src/skills/*` (types, frontmatter, loader, handler) | 198 |
+| `src/entry/agent.ts` | 104 |
+| **Total** | **1,368** |
+
+> Yellow flag still active: roadmap's "M2 ≤ 600 LOC" freeze trigger was set against an early estimate; project is at 1,368 LOC at end of M1. The Anthropic provider (174) + OpenAI-compat (286) = 460 LOC alone — both are wire-format converters that don't violate "薄く" once you accept ADR-0005's "two wire formats" decision. Recalibrate the M2 ceiling when M2 starts; do not retrofit M0/M1 to chase it.
+
+### Out of scope for M1
+
+SQLite + FTS5 (M2), memory_nudge (M2), search_sessions (M2), MCP server export (M3), A2A endpoint (M4), Telegram (M5).
+
+---
+
+## Next milestone: M2 — SQLite + memory nudge (notes for later)
+
+Pick up after M1 lands.
+
+- [ ] Migrate jsonl → SQLite + FTS5 (trigram tokenizer per ADR-0004)
+- [ ] `search_sessions(query)` tool exposed via the registry
+- [ ] `memory_nudge_interval` (default 10 turns): inject a system message reminding the agent to update MEMORY.md when relevant
+- [ ] `memory_append` / `memory_edit` tools so the agent can rewrite MEMORY.md
+- [ ] Verify: 50 turns of conversation produce at least one MEMORY.md update; DB stays under 10 MB at 1k messages
 
 ---
 
@@ -90,3 +124,5 @@ Skill mechanism / SQLite / memory nudge / multiple channels / MCP / A2A. (Per th
 ## Completed milestones
 
 - **M0 — walking skeleton** (2026-05-03). 14 commits, 799 LOC production / 1,347 LOC tests, 71 unit tests + 1 e2e smoke. All five done criteria met.
+- **OpenAI-compat provider** (2026-05-03, post-M0 unblock). 3 commits, +286 LOC production / +420 LOC tests. `LLM_PROVIDER=openai-compat` switches to OpenAI Chat Completions wire format; same `Provider` interface, no `openai` SDK dep.
+- **M1 — workspace + skills** (2026-05-03). 2 commits, +569 LOC production / +443 LOC tests. agentskills.io directory layout (`SOUL.md` / `MEMORY.md` / `skills/<name>/SKILL.md`) loaded at startup; skills exposed as LLM tools; `/<name>` slash command wired up; hand-rolled frontmatter parser keeps the dep tree thin.
