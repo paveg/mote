@@ -1,9 +1,9 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getWorkspaceDir, ensureWorkspace } from "@/core/workspace";
+import { getWorkspaceDir, ensureWorkspace, loadSoul, loadMemory } from "@/core/workspace";
 
 let fakeHome: string;
 
@@ -65,4 +65,42 @@ test("ensureWorkspace creates directories with mode 0o700", async () => {
 
   const sessionsStat = await stat(join(dir, "sessions"));
   expect(sessionsStat.mode & 0o777).toBe(0o700);
+});
+
+test("loadSoul returns null when SOUL.md does not exist", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "mote-soul-test-"));
+  try {
+    expect(await loadSoul(dir)).toBeNull();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadSoul returns the file contents trimmed of trailing whitespace", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "mote-soul-test-"));
+  try {
+    await writeFile(join(dir, "SOUL.md"), "I am mote.\n\n");
+    expect(await loadSoul(dir)).toBe("I am mote.");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadMemory returns null when MEMORY.md does not exist", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "mote-memory-test-"));
+  try {
+    expect(await loadMemory(dir)).toBeNull();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadMemory returns file contents when MEMORY.md exists", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "mote-memory-test-"));
+  try {
+    await writeFile(join(dir, "MEMORY.md"), "remember the milk\n");
+    expect(await loadMemory(dir)).toBe("remember the milk");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

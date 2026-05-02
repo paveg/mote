@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 // Whitelist for agent ids. Rejects path-traversal segments (`..`),
@@ -17,6 +17,32 @@ export function getWorkspaceDir(agentId: string, home: string = homedir()): stri
     throw new Error(`Invalid agentId: ${JSON.stringify(agentId)}`);
   }
   return join(home, ".mote", "agents", agentId);
+}
+
+// Reads <workspaceDir>/SOUL.md if present. Returns the file contents
+// (trimmed of trailing whitespace) or null if the file does not exist.
+// Other I/O errors propagate.
+export async function loadSoul(workspaceDir: string): Promise<string | null> {
+  return readOptionalFile(`${workspaceDir}/SOUL.md`);
+}
+
+// Reads <workspaceDir>/MEMORY.md if present. Same semantics as loadSoul.
+export async function loadMemory(workspaceDir: string): Promise<string | null> {
+  return readOptionalFile(`${workspaceDir}/MEMORY.md`);
+}
+
+async function readOptionalFile(path: string): Promise<string | null> {
+  try {
+    const content = await readFile(path, "utf8");
+    return content.replace(/\s+$/, "");
+  } catch (e) {
+    if (isNodeError(e) && e.code === "ENOENT") return null;
+    throw e;
+  }
+}
+
+function isNodeError(e: unknown): e is NodeJS.ErrnoException {
+  return typeof e === "object" && e !== null && "code" in e;
 }
 
 // Creates the workspace and `sessions/` subdirectory if they do not exist.
