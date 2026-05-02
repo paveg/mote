@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (security-priority directive 2026-05-03; needs user accept before M0 task #6 implementation begins)
+Accepted (2026-05-03)
 
 ## Context
 
