@@ -54,6 +54,8 @@ Pure data shapes only. `ToolDefinition` and `AgentContext` are split out (see ta
 - [ ] `ToolRegistry` class backed by `Map<string, ToolDefinition>`
 - [ ] Duplicate registration throws
 - [ ] `schemas()` runs each `schema` through `@valibot/to-json-schema` once and returns `ToolSchema[]` for the LLM
+- [ ] **Security (validation invariant)**: `dispatch(call, ctx)` is the ONLY public path that calls a handler. It MUST run `v.parse(def.schema, call.args)` before passing typed args to the handler. There is no `--skip-validation` flag, no test bypass. Validation failure returns an error string; the handler is never invoked.
+- [ ] Test: a malformed `call.args` (failing valibot parse) returns an error string and does NOT call the handler (use a spy handler that fails the test if invoked).
 - [ ] Unit tests (duplicate / unknown / happy path / schema → JSON Schema conversion)
 
 #### 3b. Agent context — `src/core/context.ts`
@@ -66,6 +68,8 @@ Pure data shapes only. `ToolDefinition` and `AgentContext` are split out (see ta
 - [ ] `appendMessages(sessionId, messages[])` → `<workspace>/sessions/<id>.jsonl`
 - [ ] `loadLatestSession()` returns the messages of the most recent session
 - [ ] Flush is guaranteed on `Ctrl+C` (`process.on('SIGINT')`)
+- [ ] **Security**: open the session file with mode `0o600`. Default umask `022` would otherwise leave session logs world-readable on Linux home servers. Conversation may contain pasted secrets.
+- [ ] **Security**: serialize via `JSON.stringify` exclusively (never template strings). Add a round-trip test for messages containing embedded newlines / quotes / backslashes.
 - [ ] Unit tests
 
 #### 5. Anthropic provider — `src/providers/anthropic.ts` (per ADR-0005)
@@ -77,13 +81,18 @@ Pure data shapes only. `ToolDefinition` and `AgentContext` are split out (see ta
   - [ ] Auto `cache_control` on system + `SOUL.md` + `MEMORY.md` (when those slots are present)
   - [ ] Map `tool_use` ↔ internal `ToolCall`; map `tool_result` for the next turn
   - [ ] Return usage so the iteration budget can deduct
+  - [ ] **Security**: read API key from env var only (never accept it via constructor option that could be logged). On SDK error, surface only `{ status, sanitizedMessage }` — never echo request headers, request body, or `process.env`. Add a test that asserts the API key value never appears in any error path's serialized output.
 - [ ] Mock provider for tests (drop-in replacement of the `Provider` interface)
 - [ ] OpenAI-compat is **out of scope for M0** — added later when an actual non-Anthropic use case appears
 
-#### 6. Built-in tool — `read_file` only
+#### 6. Built-in tool — `read_file` only (per ADR-0008)
 
 - [ ] Implement `read_file({ path: string })` as a `ToolDefinition`
 - [ ] Errors return strings; never throw
+- [ ] **Security (path traversal)**: resolve `path` against `ctx.workspaceDir` and assert the resolved real path stays inside the workspace root. Reject inputs that resolve outside (`../`, absolute paths, symlinks that escape).
+- [ ] **Security (schema)**: valibot schema rejects absolute paths and any input containing `..` segments at validation time, before the handler runs.
+- [ ] Test: `read_file({ path: "../../etc/passwd" })` returns an error string and does NOT read the file.
+- [ ] Test: a symlink inside the workspace pointing outside is rejected after `realpath` resolution.
 
 #### 7. Agent loop — `src/core/loop.ts`
 
@@ -121,6 +130,13 @@ Pick up after M0 lands.
 - CLI slash commands (`/<skill-name>`)
 
 ---
+
+## Security backlog (carried across milestones)
+
+- [ ] **Before M3 (MCP server)**: write **ADR-0009: MCP server security model**. Cover transport (stdio default; TCP behind shared-secret token), capability gating for `invoke_skill` (full tool registry vs curated subset), and rejection of unauthenticated TCP callers.
+- [ ] **Before M4 (A2A endpoint)**: write **ADR-0010: A2A endpoint security**. Cover `Access-Control-Allow-Origin` allowlist (no `*`), rate limiting (Hono `hono/rate-limiter`), request body size cap.
+- [ ] **Before M5 (Telegram pairing)**: write **ADR-0011: Telegram channel security**. Cover pairing-code entropy (≥128 bits via `crypto.randomBytes(16).toString("hex")`, single-use), allowlist storage (file with `0o600` or env-var-only, NOT inside writable `state.db`), and inbound `from.id` allowlist enforcement before any tool dispatch.
+- [ ] **Before any `bash` / `write_file` / network-fetch tool**: extend **ADR-0008** scope or write a follow-up ADR covering shell metachar handling, executable allowlist, and timeouts.
 
 ## Completed milestones
 

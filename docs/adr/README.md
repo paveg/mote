@@ -17,3 +17,4 @@ Accepted design decisions for mote. To add a new one:
 | 0005 | [Two LLM wire formats — Anthropic native + OpenAI-compatible](./0005-llm-provider-strategy.md) | Accepted |
 | 0006 | [Implement the tool registry as a single in-process map](./0006-tool-registry-in-process-map.md) | Accepted |
 | 0007 | [Support both MCP server and client (M3+)](./0007-mcp-server-and-client.md) | Accepted |
+| 0008 | [Workspace-confinement policy for filesystem tools](./0008-workspace-confinement-policy.md) | Proposed |
