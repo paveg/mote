@@ -28,11 +28,14 @@ import { randomUUID } from "node:crypto";
 
 import { ToolRegistry as ToolRegistryImpl } from "@/core/registry";
 import { JsonlState } from "@/core/state";
-import { ensureWorkspace } from "@/core/workspace";
+import { ensureWorkspace, loadSoul, loadMemory } from "@/core/workspace";
 import { createAnthropicProvider } from "@/providers/anthropic";
 import { createOpenAICompatProvider } from "@/providers/openai-compat";
 import type { IterationBudget, Usage } from "@/core/types";
 import { readFileTool } from "@/core/tools/read_file";
+import { loadSkills } from "@/skills/loader";
+import { createSkillToolDefinition } from "@/skills/handler";
+import { composeSystemPrompt } from "@/core/persona";
 
 export interface BuildContextOpts {
   agentId?: string;                // defaults to "default"
@@ -89,9 +92,20 @@ export async function buildContext(
   const workspaceDir = await ensureWorkspace(agentId, opts.home);
   const sessionId = `s_${randomUUID()}`;
 
+  const [soul, memory, skills] = await Promise.all([
+    loadSoul(workspaceDir),
+    loadMemory(workspaceDir),
+    loadSkills(workspaceDir),
+  ]);
+
+  const skillModel = process.env["LLM_MODEL"] ?? "claude-sonnet-4-6";
+
   const registry = opts.registry ?? (() => {
     const r = new ToolRegistryImpl();
     r.register(readFileTool);
+    for (const skill of skills) {
+      r.register(createSkillToolDefinition(skill, { model: skillModel }));
+    }
     return r;
   })();
 
@@ -111,6 +125,6 @@ export async function buildContext(
       budget: new TokenBudget(opts.initialBudget ?? 1_000_000),
     },
     signal,
-    systemPrompt: opts.systemPrompt ?? (() => "You are mote, a minimal personal AI agent."),
+    systemPrompt: opts.systemPrompt ?? (() => composeSystemPrompt(soul, memory)),
   };
 }

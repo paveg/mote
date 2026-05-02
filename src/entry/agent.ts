@@ -49,6 +49,20 @@ async function main(): Promise<void> {
     if (line === "") continue;
     if (line === "/exit") break;
 
+    // Slash command: if the line starts with "/" and the name matches a
+    // registered tool, rewrite the user input to a natural-language directive
+    // so the LLM can invoke the tool via the manifest. Unknown slash commands
+    // are reported and the loop continues without contaminating the conversation.
+    if (line.startsWith("/")) {
+      const name = line.slice(1).trim();
+      const known = ctx.registry.schemas().some((s) => s.name === name);
+      if (!known) {
+        process.stdout.write(`unknown command: /${name}\n`);
+        continue;
+      }
+      line = `Please execute the ${name} skill.`;
+    }
+
     const userMessage: Message = {
       role: "user",
       content: [{ type: "text", text: line }],

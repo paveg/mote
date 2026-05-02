@@ -190,3 +190,86 @@ testProv("buildContext respects an injected provider regardless of LLM_PROVIDER"
   const ctx = await buildContextProv({ home: fakeHomeProv, provider: injected });
   expectProv(ctx.provider).toBe(injected);
 });
+
+import { test as testM1, expect as expectM1, beforeEach as beforeEachM1, afterEach as afterEachM1 } from "bun:test";
+import { mkdtemp as mkdtempM1, rm as rmM1, writeFile as writeFileM1, mkdir as mkdirM1 } from "node:fs/promises";
+import { tmpdir as tmpdirM1 } from "node:os";
+import { join as joinM1 } from "node:path";
+import { buildContext as buildContextM1 } from "@/core/context";
+import type { Provider as ProviderM1 } from "@/providers/types";
+
+const noopProviderM1: ProviderM1 = {
+  complete: async () => ({
+    assistant: { role: "assistant", content: [], createdAt: 0 },
+    toolCalls: [],
+    usage: { input: 0, output: 0 },
+  }),
+};
+
+let fakeHomeM1: string;
+
+beforeEachM1(async () => {
+  fakeHomeM1 = await mkdtempM1(joinM1(tmpdirM1(), "mote-m1-buildctx-"));
+});
+
+afterEachM1(async () => {
+  await rmM1(fakeHomeM1, { recursive: true, force: true });
+});
+
+testM1("buildContext registers loaded skills alongside read_file in the default registry", async () => {
+  const skillsDir = joinM1(fakeHomeM1, ".mote/agents/default/skills/hello");
+  await mkdirM1(skillsDir, { recursive: true });
+  await writeFileM1(
+    joinM1(skillsDir, "SKILL.md"),
+    `---\nname: hello\ndescription: Say hello\n---\nReply with hi.`,
+  );
+
+  const ctx = await buildContextM1({ home: fakeHomeM1, provider: noopProviderM1 });
+  const names = ctx.registry.schemas().map((s) => s.name).sort();
+  expectM1(names).toEqual(["hello", "read_file"]);
+});
+
+testM1("buildContext default systemPrompt includes SOUL.md when present", async () => {
+  const dir = joinM1(fakeHomeM1, ".mote/agents/default");
+  await mkdirM1(dir, { recursive: true });
+  await writeFileM1(joinM1(dir, "SOUL.md"), "I value brevity.");
+
+  const ctx = await buildContextM1({ home: fakeHomeM1, provider: noopProviderM1 });
+  const prompt = ctx.systemPrompt();
+  expectM1(prompt).toContain("You are mote");
+  expectM1(prompt).toContain("I value brevity.");
+});
+
+testM1("buildContext default systemPrompt includes MEMORY.md when present", async () => {
+  const dir = joinM1(fakeHomeM1, ".mote/agents/default");
+  await mkdirM1(dir, { recursive: true });
+  await writeFileM1(joinM1(dir, "MEMORY.md"), "User prefers tea over coffee.");
+
+  const ctx = await buildContextM1({ home: fakeHomeM1, provider: noopProviderM1 });
+  const prompt = ctx.systemPrompt();
+  expectM1(prompt).toContain("User prefers tea over coffee.");
+});
+
+testM1("buildContext systemPrompt falls back to base when SOUL/MEMORY are absent", async () => {
+  const ctx = await buildContextM1({ home: fakeHomeM1, provider: noopProviderM1 });
+  const prompt = ctx.systemPrompt();
+  expectM1(prompt).toBe("You are mote, a minimal personal AI agent.");
+});
+
+testM1("buildContext does NOT auto-register skills when an injected registry is provided", async () => {
+  const skillsDir = joinM1(fakeHomeM1, ".mote/agents/default/skills/hello");
+  await mkdirM1(skillsDir, { recursive: true });
+  await writeFileM1(
+    joinM1(skillsDir, "SKILL.md"),
+    `---\nname: hello\ndescription: Say hello\n---\nbody`,
+  );
+
+  const { ToolRegistry } = await import("@/core/registry");
+  const customRegistry = new ToolRegistry();
+  const ctx = await buildContextM1({
+    home: fakeHomeM1,
+    provider: noopProviderM1,
+    registry: customRegistry,
+  });
+  expectM1(ctx.registry.schemas()).toEqual([]);
+});

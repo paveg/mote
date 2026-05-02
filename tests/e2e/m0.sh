@@ -89,3 +89,28 @@ echo "PASS: M0 walking skeleton e2e"
 echo "  - bun run agent accepted stdin and exited cleanly"
 echo "  - read_file dispatched (marker $MARKER present in response)"
 echo "  - session log at $SESSION_FILE (mode $PERMS)"
+
+# --- M1: slash-command path -----------------------------------------------
+
+# Add a hello skill in the temp workspace, then invoke it via /hello
+SKILL_DIR="$WORKSPACE/skills/hello"
+mkdir -p "$SKILL_DIR"
+cat > "$SKILL_DIR/SKILL.md" <<'EOF'
+---
+name: hello
+description: Reply with the literal text mote-hello-marker.
+---
+Reply with exactly the text `mote-hello-marker` and nothing else.
+EOF
+
+SLASH_RESPONSE="$(printf '/hello\n/exit\n' | bun run src/entry/agent.ts 2>&1 || true)"
+
+if ! grep -q "mote-hello-marker" <<< "$SLASH_RESPONSE"; then
+  echo "FAIL: /hello slash command did not invoke the skill"
+  echo "---"
+  echo "$SLASH_RESPONSE"
+  echo "---"
+  exit 1
+fi
+
+echo "PASS: M1 slash command e2e (/hello dispatched and skill body executed)"
