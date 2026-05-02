@@ -1,0 +1,23 @@
+{
+  "name": "@paveg/mote",
+  "version": "0.0.0",
+  "description": "Minimal personal AI agent",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "mote": "src/entry/agent.ts"
+  },
+  "scripts": {
+    "agent": "bun run src/entry/agent.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "bun": ">=1.2"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  }
+}

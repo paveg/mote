@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# build artifacts
+dist/
+*.tsbuildinfo
+
+# bun
+.bun/
+
+# claude code worktrees (per ~/.claude/rules/workflow.md)
+.claude/worktrees/
+
+# local mote workspace (should never be in repo, but be safe)
+.mote/
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# env
+.env
+.env.local
+.env.*.local
