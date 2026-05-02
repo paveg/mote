@@ -40,5 +40,5 @@ export interface CompletionResponse {
 // Anthropic native + OpenAI-compatible (when added) both implement this.
 // Mock providers in tests implement this with a fixed sequence of responses.
 export interface Provider {
-  complete(req: CompletionRequest): Promise<CompletionResponse>;
+  readonly complete: (req: CompletionRequest) => Promise<CompletionResponse>;
 }
