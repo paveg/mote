@@ -20,6 +20,11 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
 
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+
     "types": ["bun"]
   },
   "include": ["src/**/*", "tests/**/*"]

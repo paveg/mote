@@ -20,13 +20,26 @@
 
 ### M0 implementation tasks (in dependency order)
 
-#### 1. Shared types — `src/core/types.ts`
+#### 1. Shared data types — `src/core/types.ts` (per `docs/superpowers/specs/2026-05-02-types-design.md`)
 
-- [ ] `Message` (role: user/assistant/tool/system, content, toolCalls?, createdAt)
+Pure data shapes only. `ToolDefinition` and `AgentContext` are split out (see tasks 1b and 3).
+
+- [ ] `Role = "user" | "assistant" | "system"` (no `"tool"` role; tool results live as `tool_result` blocks)
+- [ ] `ContentBlock` discriminated union: `text` / `tool_use` / `tool_result` / `thinking`
+- [ ] `Message` (role, content: ContentBlock[], createdAt)
 - [ ] `ToolCall` (id, name, args)
-- [ ] `ToolDefinition` (name, description, inputSchema, handler)
-- [ ] `AgentContext` (registry, provider, state, opts, signal, sessionId, systemPrompt, memoryNudge?)
+- [ ] `Usage` (input, output)
+- [ ] `IterationBudget` interface (readonly remaining + deduct)
 - [ ] `RunOptions` (maxIterations, budget)
+- [ ] `RunResult` (messages, iter)
+
+#### 1b. Provider I/O types — `src/providers/types.ts`
+
+- [ ] `ToolSchema` (name, description, input_schema as JSON Schema object)
+- [ ] `CompletionRequest` (model, messages, tools, system) — provider-agnostic, no Anthropic-specific fields
+- [ ] `CompletionResponse` (assistant: Message, toolCalls: ToolCall[], usage: Usage)
+- [ ] `Provider` interface — single method `complete(req): Promise<CompletionResponse>`
+- [ ] Imports from `@/core/types` only (type-only)
 
 #### 2. Workspace resolution — `src/core/workspace.ts`
 
@@ -36,10 +49,17 @@
 
 #### 3. Tool registry — `src/core/registry.ts`
 
-- [ ] Backed by `Map<string, ToolDefinition>`
+- [ ] `ToolHandler<TSchema>` — generic handler signature inferring args from a valibot schema
+- [ ] `ToolDefinition<TSchema>` — `{ name, description, schema, handler }` with `schema` as a valibot schema
+- [ ] `ToolRegistry` class backed by `Map<string, ToolDefinition>`
 - [ ] Duplicate registration throws
-- [ ] `schemas()` returns the array shaped for the LLM
-- [ ] Unit tests (duplicate / unknown / happy path)
+- [ ] `schemas()` runs each `schema` through `@valibot/to-json-schema` once and returns `ToolSchema[]` for the LLM
+- [ ] Unit tests (duplicate / unknown / happy path / schema → JSON Schema conversion)
+
+#### 3b. Agent context — `src/core/context.ts`
+
+- [ ] `AgentContext` interface aggregating registry, provider, state, opts, signal, sessionId, workspaceDir, systemPrompt
+- [ ] `buildContext(opts)` factory wires everything together for the CLI entrypoint
 
 #### 4. State persistence (jsonl) — `src/core/state.ts`
 
@@ -48,9 +68,10 @@
 - [ ] Flush is guaranteed on `Ctrl+C` (`process.on('SIGINT')`)
 - [ ] Unit tests
 
-#### 5. Provider abstraction — Anthropic native (per ADR-0005)
+#### 5. Anthropic provider — `src/providers/anthropic.ts` (per ADR-0005)
 
-- [ ] `src/providers/types.ts` — `Provider` interface plus `CompletionRequest` / `CompletionResponse` / shared `Message` and `ToolCall` shapes (provider-agnostic)
+(`src/providers/types.ts` is split into task #1b above.)
+
 - [ ] `src/providers/anthropic.ts` — native via `@anthropic-ai/sdk`
   - [ ] Map `Message[]` → `messages.create` request shape
   - [ ] Auto `cache_control` on system + `SOUL.md` + `MEMORY.md` (when those slots are present)
