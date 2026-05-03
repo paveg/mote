@@ -25,9 +25,15 @@ export interface CreateA2aAppOpts {
   readonly maxBodySize?: number;
   // Test seam: override the runtime token validator. Production reads MOTE_A2A_TOKEN.
   readonly token?: string;
+  // Override model and agentCardUrl so callers (e.g. Workers) need not touch process.env.
+  readonly model?: string;
+  readonly agentCardUrl?: string;
 }
 
-const TOKEN_DENYLIST = new Set([
+// Substring denylist: any token whose lowercase representation contains one of
+// these strings is rejected. This catches padded variants like
+// "testtesttesttesttesttesttesttest" that exact-match sets would miss.
+const TOKEN_DENYLIST_SUBSTRINGS = [
   "changeme",
   "mote123",
   "password",
@@ -36,7 +42,7 @@ const TOKEN_DENYLIST = new Set([
   "admin",
   "test",
   "example",
-]);
+];
 const TOKEN_MIN_LENGTH = 32;
 
 function validateToken(token: string | undefined): string {
@@ -48,9 +54,10 @@ function validateToken(token: string | undefined): string {
       `MOTE_A2A_TOKEN must be at least ${TOKEN_MIN_LENGTH} characters (got ${token.length})`,
     );
   }
-  if (TOKEN_DENYLIST.has(token.toLowerCase())) {
+  const lower = token.toLowerCase();
+  if (TOKEN_DENYLIST_SUBSTRINGS.some(s => lower.includes(s))) {
     throw new Error(
-      "MOTE_A2A_TOKEN matches an obvious-weak denylist value; pick a stronger token",
+      "MOTE_A2A_TOKEN contains a denylisted substring; pick a stronger token",
     );
   }
   return token;
@@ -90,11 +97,12 @@ function buildPublicRegistry(
 
 function buildAgentCard(
   publicSkills: ReadonlyArray<LoadedSkill>,
+  agentCardUrl?: string,
 ): AgentCard {
   return {
     name: "mote",
     description: "Minimal personal AI agent",
-    url: process.env["MOTE_A2A_URL"] ?? "http://localhost:8787",
+    url: agentCardUrl ?? process.env["MOTE_A2A_URL"] ?? "http://localhost:8787",
     version: "0.1.0",
     capabilities: { streaming: true },
     defaultInputModes: ["text/plain"],
@@ -109,11 +117,14 @@ function buildAgentCard(
   };
 }
 
-// requestLogger that sets a context flag so downstream loggers know to
-// redact the Authorization header value (ADR-0011 D3).
-function buildLogRedactor() {
+// Mutates the raw request's Authorization header to "Bearer <redacted>" before
+// next() runs so that any downstream logger (hono/logger, custom middleware)
+// cannot observe the actual token value (ADR-0011 D3). Exported as a test seam.
+export function buildLogRedactor() {
   return async (c: Context, next: () => Promise<void>) => {
-    c.set("redact-auth", true);
+    if (c.req.raw.headers.has("authorization")) {
+      c.req.raw.headers.set("authorization", "Bearer <redacted>");
+    }
     await next();
   };
 }
@@ -121,11 +132,13 @@ function buildLogRedactor() {
 export function createA2aApp(ctx: AgentContext, opts: CreateA2aAppOpts): Hono {
   const token = validateToken(opts.token ?? process.env["MOTE_A2A_TOKEN"]);
   const maxBodySize = opts.maxBodySize ?? 100 * 1024;
-  const model = process.env["LLM_MODEL"] ?? "claude-sonnet-4-6";
+  // Prefer caller-supplied model over env var so Workers can pass it directly
+  // without mutating process.env (M2 / TOCTOU fix).
+  const model = opts.model ?? process.env["LLM_MODEL"] ?? "claude-sonnet-4-6";
 
   const publicSkills = opts.skills.filter(s => s.mcp === "public");
   const restrictedRegistry = buildPublicRegistry(publicSkills, model);
-  const agentCard = buildAgentCard(publicSkills);
+  const agentCard = buildAgentCard(publicSkills, opts.agentCardUrl);
 
   const userBuilder: UserBuilder = async (c) => {
     const headerValue = c.req.header("authorization") ?? "";
@@ -140,15 +153,20 @@ export function createA2aApp(ctx: AgentContext, opts: CreateA2aAppOpts): Hono {
     return { isAuthenticated: true, userName: "operator" };
   };
 
-  // Authentication enforcement middleware. The JSON-RPC endpoint (POST /)
-  // requires a valid Bearer token. The agent card (GET /.well-known/…) is
-  // public and intentionally skipped here.
+  // Authentication enforcement middleware. All routes require a valid Bearer
+  // token EXCEPT the public agent card endpoint. Using an allowlist (permit
+  // one specific route) rather than a denylist (block one specific route)
+  // ensures path-normalization variants like POST // or POST /%2F are covered
+  // structurally rather than relying on Hono's normalization behavior.
   // hono-a2a's userBuilder alone is not sufficient for rejection — it only
   // passes user info to ServerCallContext; the transport layer does not
   // gate on isAuthenticated. We enforce it at the Hono middleware layer.
   const authMiddleware = async (c: Context, next: () => Promise<void>) => {
-    // Only protect the JSON-RPC endpoint
-    if (c.req.method === "POST" && c.req.path === "/") {
+    // Allow unauthenticated access only to the agent card discovery endpoint.
+    const isAgentCard =
+      c.req.method === "GET" &&
+      c.req.path === "/.well-known/agent-card.json";
+    if (!isAgentCard) {
       const headerValue = c.req.header("authorization") ?? "";
       const presented = headerValue.replace(/^Bearer\s+/i, "").trim();
       if (!tokensEqual(presented, token)) {

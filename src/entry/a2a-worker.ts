@@ -53,19 +53,16 @@ interface Env {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    // Inject env vars into process.env so existing code that reads
-    // process.env continues to work in the Worker.
-    if (env.MOTE_A2A_TOKEN) process.env["MOTE_A2A_TOKEN"] = env.MOTE_A2A_TOKEN;
-    if (env.LLM_API_KEY) process.env["LLM_API_KEY"] = env.LLM_API_KEY;
-    if (env.LLM_PROVIDER) process.env["LLM_PROVIDER"] = env.LLM_PROVIDER;
-    if (env.LLM_MODEL) process.env["LLM_MODEL"] = env.LLM_MODEL;
-    if (env.LLM_BASE_URL) process.env["LLM_BASE_URL"] = env.LLM_BASE_URL;
-    if (env.MOTE_A2A_URL) process.env["MOTE_A2A_URL"] = env.MOTE_A2A_URL;
-
+    // Build the provider using env bindings directly. Do NOT write to
+    // process.env — Cloudflare Workers share the global namespace across
+    // concurrent requests in the same isolate, creating a TOCTOU race (M2).
     const provider =
       (env.LLM_PROVIDER ?? "anthropic") === "openai-compat"
-        ? createOpenAICompatProvider()
-        : createAnthropicProvider();
+        ? createOpenAICompatProvider({
+            apiKey: env.LLM_API_KEY,
+            baseURL: env.LLM_BASE_URL,
+          })
+        : createAnthropicProvider({ apiKey: env.LLM_API_KEY });
 
     const ctx: AgentContext = {
       agentId: "default",
@@ -86,6 +83,9 @@ export default {
     const app = createA2aApp(ctx, {
       skills: [],
       taskStore: new InMemoryTaskStore(),
+      token: env.MOTE_A2A_TOKEN,
+      model: env.LLM_MODEL,
+      agentCardUrl: env.MOTE_A2A_URL,
       maxBodySize: env.MOTE_A2A_MAX_BODY
         ? parseInt(env.MOTE_A2A_MAX_BODY, 10)
         : undefined,
