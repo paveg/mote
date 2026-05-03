@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { runLoop } from "@/core/loop";
 import { ToolRegistry } from "@/core/registry";
-import { JsonlState } from "@/core/state";
+import { SqliteState } from "@/core/state";
 import { ensureWorkspace } from "@/core/workspace";
 import * as v from "valibot";
 import type { AgentContext } from "@/core/context";
@@ -75,7 +75,7 @@ function makeContext(
   const registry = override.registry ?? new ToolRegistry();
   const budget = override.budget ?? makeBudget();
   const signal = override.signal ?? new AbortController().signal;
-  const state = new JsonlState(workspaceDir);
+  const state = new SqliteState(workspaceDir);
   return {
     agentId: "default",
     sessionId: "s_test",

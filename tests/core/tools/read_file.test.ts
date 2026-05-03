@@ -25,6 +25,9 @@ const stubAgentContext = (workspaceDir: string): AgentContext =>
       async loadLatestSession() {
         return [];
       },
+      async searchSessions(_q, _l) {
+        return [];
+      },
     },
     opts: {
       maxIterations: 10,

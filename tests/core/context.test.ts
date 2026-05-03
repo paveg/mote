@@ -10,6 +10,9 @@ test("AgentContext can be constructed as an object literal satisfying the interf
     async loadLatestSession() {
       return [];
     },
+    async searchSessions(_query, _limit) {
+      return [];
+    },
   };
 
   // We do not need a working ToolRegistry / Provider for this test; we
@@ -38,6 +41,9 @@ test("SessionState round-trips an empty messages array", async () => {
   const state: SessionState = {
     async appendMessages(_sessionId: string, _messages: Message[]) {},
     async loadLatestSession() {
+      return [];
+    },
+    async searchSessions(_query: string, _limit?: number) {
       return [];
     },
   };
@@ -226,7 +232,7 @@ testM1("buildContext registers loaded skills alongside read_file in the default 
 
   const ctx = await buildContextM1({ home: fakeHomeM1, provider: noopProviderM1 });
   const names = ctx.registry.schemas().map((s) => s.name).sort();
-  expectM1(names).toEqual(["hello", "read_file"]);
+  expectM1(names).toEqual(["hello", "read_file", "search_sessions"]);
 });
 
 testM1("buildContext default systemPrompt includes SOUL.md when present", async () => {
@@ -272,4 +278,35 @@ testM1("buildContext does NOT auto-register skills when an injected registry is 
     registry: customRegistry,
   });
   expectM1(ctx.registry.schemas()).toEqual([]);
+});
+
+import { test as testM2, expect as expectM2, beforeEach as beforeEachM2, afterEach as afterEachM2 } from "bun:test";
+import { mkdtemp as mkdtempM2, rm as rmM2 } from "node:fs/promises";
+import { tmpdir as tmpdirM2 } from "node:os";
+import { join as joinM2 } from "node:path";
+import { buildContext as buildContextM2 } from "@/core/context";
+import type { Provider as ProviderM2 } from "@/providers/types";
+
+const noopProviderM2: ProviderM2 = {
+  complete: async () => ({
+    assistant: { role: "assistant", content: [], createdAt: 0 },
+    toolCalls: [],
+    usage: { input: 0, output: 0 },
+  }),
+};
+
+let fakeHomeM2: string;
+
+beforeEachM2(async () => {
+  fakeHomeM2 = await mkdtempM2(joinM2(tmpdirM2(), "mote-m2-buildctx-"));
+});
+
+afterEachM2(async () => {
+  await rmM2(fakeHomeM2, { recursive: true, force: true });
+});
+
+testM2("buildContext registers search_sessions in the default registry", async () => {
+  const ctx = await buildContextM2({ home: fakeHomeM2, provider: noopProviderM2 });
+  const names = ctx.registry.schemas().map(s => s.name).sort();
+  expectM2(names).toContain("search_sessions");
 });

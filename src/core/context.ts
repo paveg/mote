@@ -1,6 +1,7 @@
 import type { Message, RunOptions } from "@/core/types";
 import type { Provider } from "@/providers/types";
 import type { ToolRegistry } from "@/core/registry";
+import type { SearchHit } from "@/core/state";
 
 // SessionState's full surface lands in M0 task #4 (state.ts). Declared here
 // so registry/handlers can typecheck against the contract right now;
@@ -8,6 +9,7 @@ import type { ToolRegistry } from "@/core/registry";
 export interface SessionState {
   appendMessages(sessionId: string, messages: Message[]): Promise<void>;
   loadLatestSession(): Promise<Message[]>;
+  searchSessions(query: string, limit?: number): Promise<SearchHit[]>;
 }
 
 // The context every tool handler and the agent loop receives.
@@ -27,12 +29,13 @@ export interface AgentContext {
 import { randomUUID } from "node:crypto";
 
 import { ToolRegistry as ToolRegistryImpl } from "@/core/registry";
-import { JsonlState } from "@/core/state";
+import { SqliteState } from "@/core/state";
 import { ensureWorkspace, loadSoul, loadMemory } from "@/core/workspace";
 import { createAnthropicProvider } from "@/providers/anthropic";
 import { createOpenAICompatProvider } from "@/providers/openai-compat";
 import type { IterationBudget, Usage } from "@/core/types";
 import { readFileTool } from "@/core/tools/read_file";
+import { searchSessionsTool } from "@/core/tools/search_sessions";
 import { loadSkills } from "@/skills/loader";
 import { createSkillToolDefinition } from "@/skills/handler";
 import { composeSystemPrompt } from "@/core/persona";
@@ -103,6 +106,7 @@ export async function buildContext(
   const registry = opts.registry ?? (() => {
     const r = new ToolRegistryImpl();
     r.register(readFileTool);
+    r.register(searchSessionsTool);
     for (const skill of skills) {
       r.register(createSkillToolDefinition(skill, { model: skillModel }));
     }
@@ -110,7 +114,7 @@ export async function buildContext(
   })();
 
   const provider = opts.provider ?? defaultProvider();
-  const state = new JsonlState(workspaceDir);
+  const state = new SqliteState(workspaceDir);
   const signal = opts.signal ?? new AbortController().signal;
 
   return {

@@ -21,6 +21,7 @@ const stubCtx = (provider: Provider): AgentContext =>
     state: {
       async appendMessages(_s: string, _m: unknown[]) {},
       async loadLatestSession() { return []; },
+      async searchSessions(_q: string, _l?: number) { return []; },
     },
     opts: {
       maxIterations: 5,

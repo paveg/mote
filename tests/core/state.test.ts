@@ -1,110 +1,155 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { JsonlState } from "@/core/state";
+import { SqliteState } from "@/core/state";
 import { ensureWorkspace } from "@/core/workspace";
 import type { Message } from "@/core/types";
 
 let fakeHome: string;
 let workspaceDir: string;
+let state: SqliteState;
 
 beforeEach(async () => {
   fakeHome = await mkdtemp(join(tmpdir(), "mote-state-test-"));
   workspaceDir = await ensureWorkspace("default", fakeHome);
+  state = new SqliteState(workspaceDir);
 });
 
 afterEach(async () => {
+  state.close();
   await rm(fakeHome, { recursive: true, force: true });
 });
 
-const makeMessage = (text: string): Message => ({
-  role: "user",
+const makeMessage = (text: string, role: "user" | "assistant" = "user"): Message => ({
+  role,
   content: [{ type: "text", text }],
-  createdAt: 0, // fixed so equality is deterministic
+  createdAt: Date.now(),
 });
 
-test("appendMessages writes a jsonl file under sessions/<id>.jsonl with mode 0o600", async () => {
-  const state = new JsonlState(workspaceDir);
+test("appendMessages writes to <workspaceDir>/state.db with mode 0o600", async () => {
   await state.appendMessages("s_1", [makeMessage("hello")]);
 
-  const path = join(workspaceDir, "sessions", "s_1.jsonl");
-  const fileStat = await stat(path);
+  const dbPath = join(workspaceDir, "state.db");
+  const fileStat = await stat(dbPath);
   expect(fileStat.isFile()).toBe(true);
   expect(fileStat.mode & 0o777).toBe(0o600);
 });
 
 test("appendMessages is a no-op for an empty messages array", async () => {
-  const state = new JsonlState(workspaceDir);
   await state.appendMessages("s_empty", []);
-  // file should not exist
-  const path = join(workspaceDir, "sessions", "s_empty.jsonl");
-  await expect(stat(path)).rejects.toThrow();
-});
-
-test("appendMessages enforces 0o600 even on a pre-existing wider-mode file", async () => {
-  // Pre-create a file with mode 0o644 to simulate a stale jsonl from a buggy past run
-  const path = join(workspaceDir, "sessions", "s_legacy.jsonl");
-  await writeFile(path, "", { mode: 0o644 });
-
-  const state = new JsonlState(workspaceDir);
-  await state.appendMessages("s_legacy", [makeMessage("x")]);
-
-  const fileStat = await stat(path);
-  expect(fileStat.mode & 0o777).toBe(0o600);
-});
-
-test("loadLatestSession returns [] when no sessions exist", async () => {
-  const state = new JsonlState(workspaceDir);
   expect(await state.loadLatestSession()).toEqual([]);
 });
 
-test("loadLatestSession returns the messages from the most recent session by mtime", async () => {
-  const state = new JsonlState(workspaceDir);
+test("loadLatestSession returns [] when no sessions exist", async () => {
+  expect(await state.loadLatestSession()).toEqual([]);
+});
 
+test("loadLatestSession returns the messages from the most recent session", async () => {
   await state.appendMessages("s_old", [makeMessage("old")]);
-  // wait so mtime differs
   await new Promise(r => setTimeout(r, 10));
   await state.appendMessages("s_new", [makeMessage("new")]);
 
   const loaded = await state.loadLatestSession();
   expect(loaded).toHaveLength(1);
   const block = loaded[0]?.content[0];
-  if (!block || block.type !== "text") throw new Error("expected text block");
+  if (!block || block.type !== "text") throw new Error("expected text");
   expect(block.text).toBe("new");
 });
 
-test("round-trip survives messages with embedded newlines, quotes, and backslashes", async () => {
+test("round-trip survives messages with embedded newlines / quotes / tool blocks", async () => {
   const tricky: Message = {
     role: "assistant",
     content: [
       { type: "text", text: 'line1\nline2\t"quoted"\\backslash' },
-      { type: "tool_use", id: "tu_1", name: "echo", input: { x: 'with"quote\nnewline' } },
+      { type: "tool_use", id: "tu_1", name: "echo", input: { x: 'with"quote' } },
     ],
-    createdAt: 0,
+    createdAt: Date.now(),
   };
-
-  const state = new JsonlState(workspaceDir);
   await state.appendMessages("s_round", [tricky]);
-
   const loaded = await state.loadLatestSession();
   expect(loaded).toHaveLength(1);
   expect(loaded[0]).toEqual(tricky);
 });
 
-test("multiple appendMessages calls accumulate into the same file", async () => {
-  const state = new JsonlState(workspaceDir);
-  await state.appendMessages("s_acc", [makeMessage("first")]);
-  await state.appendMessages("s_acc", [makeMessage("second"), makeMessage("third")]);
-
+test("multiple appendMessages calls accumulate into the same session", async () => {
+  const sid = "s_acc";
+  await state.appendMessages(sid, [makeMessage("first")]);
+  await state.appendMessages(sid, [makeMessage("second"), makeMessage("third")]);
   const loaded = await state.loadLatestSession();
   expect(loaded).toHaveLength(3);
-
   const texts = loaded.map(m => {
     const b = m.content[0];
-    if (!b || b.type !== "text") throw new Error("expected text block");
+    if (!b || b.type !== "text") throw new Error("expected text");
     return b.text;
   });
   expect(texts).toEqual(["first", "second", "third"]);
+});
+
+// --- FTS5 search ---------------------------------------------------------
+
+test("searchSessions returns [] for empty / whitespace queries", async () => {
+  await state.appendMessages("s", [makeMessage("anything")]);
+  expect(await state.searchSessions("")).toEqual([]);
+  expect(await state.searchSessions("   ")).toEqual([]);
+});
+
+test("searchSessions returns [] when the query has no matches", async () => {
+  await state.appendMessages("s", [makeMessage("hello world")]);
+  expect(await state.searchSessions("totally-absent-marker")).toEqual([]);
+});
+
+test("searchSessions finds a Japanese substring via the trigram tokenizer", async () => {
+  await state.appendMessages("s_jp", [makeMessage("先週の TODO を整理した")]);
+  const hits = await state.searchSessions("TODO");
+  expect(hits).toHaveLength(1);
+  expect(hits[0]?.sessionId).toBe("s_jp");
+  expect(hits[0]?.snippet).toContain("TODO");
+});
+
+test("searchSessions includes role + timestamp + snippet for each hit", async () => {
+  await state.appendMessages("s", [
+    makeMessage("the rain in spain", "user"),
+    makeMessage("falls mainly on the plain", "assistant"),
+  ]);
+  const hits = await state.searchSessions("rain");
+  expect(hits).toHaveLength(1);
+  expect(hits[0]?.role).toBe("user");
+  expect(hits[0]?.createdAt).toBeGreaterThan(0);
+});
+
+test("searchSessions respects the limit argument", async () => {
+  for (let i = 0; i < 10; i++) {
+    await state.appendMessages(`s_${i}`, [makeMessage(`item rare-marker ${i}`)]);
+  }
+  const hits = await state.searchSessions("rare-marker", 3);
+  expect(hits).toHaveLength(3);
+});
+
+test("searchSessions matches only text content, not tool_use input", async () => {
+  // tool_use blocks are NOT indexed (only text / tool_result blocks)
+  await state.appendMessages("s", [
+    {
+      role: "assistant",
+      content: [
+        { type: "tool_use", id: "tu_1", name: "echo", input: { secret: "tool-input-marker" } },
+      ],
+      createdAt: Date.now(),
+    },
+  ]);
+  expect(await state.searchSessions("tool-input-marker")).toEqual([]);
+});
+
+// --- :memory: mode -------------------------------------------------------
+
+test("SqliteState supports :memory: mode for tests with no fs side effects", async () => {
+  const inMem = new SqliteState(":memory:");
+  try {
+    await inMem.appendMessages("s_mem", [makeMessage("ephemeral")]);
+    const loaded = await inMem.loadLatestSession();
+    expect(loaded).toHaveLength(1);
+  } finally {
+    inMem.close();
+  }
 });
