@@ -103,12 +103,19 @@ function buildAnthropicSystem(system: SystemPrompt): unknown[] | undefined {
   }));
 }
 
+function sanitizeError(msg: string, apiKey: string): string {
+  if (!apiKey) return msg;
+  return msg.split(apiKey).join("<redacted>");
+}
+
 export function createAnthropicProvider(opts: AnthropicProviderOpts = {}): Provider {
   const maxTokens = opts.maxTokens ?? 4096;
 
   let client: AnthropicLike;
+  let capturedApiKey = "";
   if (opts.client !== undefined) {
     client = opts.client;
+    capturedApiKey = opts.apiKey ?? "";
   } else {
     const apiKey =
       opts.apiKey ?? process.env["LLM_API_KEY"] ?? process.env["ANTHROPIC_API_KEY"];
@@ -117,6 +124,7 @@ export function createAnthropicProvider(opts: AnthropicProviderOpts = {}): Provi
         "Anthropic API key required (set LLM_API_KEY or ANTHROPIC_API_KEY).",
       );
     }
+    capturedApiKey = apiKey;
     client = new Anthropic({ apiKey, baseURL: opts.baseURL });
   }
 
@@ -152,10 +160,11 @@ export function createAnthropicProvider(opts: AnthropicProviderOpts = {}): Provi
             "message" in e)
         ) {
           const apiErr = e as { status: unknown; message: unknown };
-          throw new Error(`anthropic ${apiErr.status}: ${apiErr.message}`);
+          const safeMsg = sanitizeError(String(apiErr.message), capturedApiKey);
+          throw new Error(`anthropic ${apiErr.status}: ${safeMsg}`);
         }
-        const msg = e instanceof Error ? e.message : String(e);
-        throw new Error(`anthropic request failed: ${msg}`);
+        const raw_msg = e instanceof Error ? e.message : String(e);
+        throw new Error(`anthropic request failed: ${sanitizeError(raw_msg, capturedApiKey)}`);
       }
 
       const res = raw as {

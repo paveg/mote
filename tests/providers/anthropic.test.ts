@@ -327,6 +327,95 @@ test("complete: sanitizes API errors — never echoes the API key", async () => 
   }
 });
 
+// --- sanitizeError defense-in-depth tests ---------------------------------
+
+test("sanitizes the API key from APIError.message before throwing (defense-in-depth, even though SDK does not currently include it)", async () => {
+  const CANARY = "sk-ant-canary-key-DO-NOT-LEAK";
+  const create = mock(async () => {
+    // Simulate an Anthropic.APIError whose .message happens to contain the key.
+    const e: Error & { status?: number } = Object.assign(
+      new Error(`rate limit exceeded key=${CANARY}`),
+      { status: 429 },
+    );
+    throw e;
+  });
+  const stub: AnthropicLike = { messages: { create } };
+  const provider = createAnthropicProvider({ apiKey: CANARY, client: stub });
+
+  let caught: Error | null = null;
+  try {
+    await provider.complete({
+      model: "claude-sonnet-4-6",
+      messages: [],
+      tools: [],
+      system: "",
+    });
+  } catch (e) {
+    caught = e as Error;
+  }
+  expect(caught).not.toBeNull();
+  expect(caught!.message).not.toContain(CANARY);
+  expect(caught!.message).toContain("<redacted>");
+});
+
+test("sanitizes the API key from non-APIError errors (the fallback path)", async () => {
+  const CANARY = "sk-ant-canary-fallback-DO-NOT-LEAK";
+  const create = mock(async () => {
+    // Throw a plain Error (no .status) so the fallback else-branch is taken.
+    throw new Error(`network error token=${CANARY}`);
+  });
+  const stub: AnthropicLike = { messages: { create } };
+  const provider = createAnthropicProvider({ apiKey: CANARY, client: stub });
+
+  let caught: Error | null = null;
+  try {
+    await provider.complete({
+      model: "claude-sonnet-4-6",
+      messages: [],
+      tools: [],
+      system: "",
+    });
+  } catch (e) {
+    caught = e as Error;
+  }
+  expect(caught).not.toBeNull();
+  expect(caught!.message).not.toContain(CANARY);
+  expect(caught!.message).toContain("<redacted>");
+});
+
+test("regression: existing canary test still passes — normal SDK error message is not mangled when key is absent", async () => {
+  const CANARY = "sk-ant-canary-regression-key";
+  const create = mock(async () => {
+    // Throw an API-shaped error whose message does NOT contain the key.
+    const e: Error & { status?: number } = Object.assign(
+      new Error("rate limit exceeded"),
+      { status: 429 },
+    );
+    throw e;
+  });
+  const stub: AnthropicLike = { messages: { create } };
+  const provider = createAnthropicProvider({ apiKey: CANARY, client: stub });
+
+  let caught: Error | null = null;
+  try {
+    await provider.complete({
+      model: "claude-sonnet-4-6",
+      messages: [],
+      tools: [],
+      system: "",
+    });
+  } catch (e) {
+    caught = e as Error;
+  }
+  expect(caught).not.toBeNull();
+  // The message must not contain the key (unchanged from before).
+  expect(caught!.message).not.toContain(CANARY);
+  // The message must NOT be mangled with spurious "<redacted>" tokens
+  // when the key was never present.
+  expect(caught!.message).not.toContain("<redacted>");
+  expect(caught!.message).toMatch(/anthropic /);
+});
+
 // --- boundary: thinking without signature, empty content array ------------
 
 test("fromAnthropicBlock: thinking block without signature", () => {
