@@ -152,3 +152,38 @@ if ! grep -q "$M2_MARKER" "$MEMORY_FILE"; then
 fi
 
 echo "PASS: M2 memory_append e2e (MEMORY.md created with marker, mode $M2_PERMS)"
+
+# --- M4: A2A endpoint smoke ---
+
+if [ -n "${MOTE_A2A_TOKEN:-}" ]; then
+  M4_TOKEN="$MOTE_A2A_TOKEN"
+elif [ -n "${LLM_API_KEY:-}" ]; then
+  # No A2A token — generate ephemeral one for the smoke
+  M4_TOKEN="$(openssl rand -base64 32 2>/dev/null | tr -d '\n=' | head -c 40)"
+fi
+
+if [ -z "${M4_TOKEN:-}" ] || [ ${#M4_TOKEN} -lt 32 ]; then
+  echo "SKIP: M4 — no token available (set MOTE_A2A_TOKEN or LLM_API_KEY)"
+else
+  export MOTE_A2A_TOKEN="$M4_TOKEN"
+  export MOTE_A2A_PORT="8788"  # avoid clashing with default 8787
+  bun run src/entry/a2a-serve.ts &
+  M4_PID=$!
+  sleep 2
+  trap "kill $M4_PID 2>/dev/null || true" EXIT
+  M4_CARD="$(curl -s http://127.0.0.1:8788/.well-known/agent-card.json || echo '{}')"
+  if ! grep -q '"name":"mote"' <<< "$M4_CARD"; then
+    echo "FAIL: M4 — agent card endpoint did not respond with mote card"
+    echo "$M4_CARD"
+    kill $M4_PID 2>/dev/null || true
+    exit 1
+  fi
+  M4_AUTH="$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8788/ -H 'Content-Type: application/json' -d '{}')"
+  if [ "$M4_AUTH" != "401" ] && [ "$M4_AUTH" != "403" ]; then
+    echo "FAIL: M4 — unauth POST should return 401/403, got $M4_AUTH"
+    kill $M4_PID 2>/dev/null || true
+    exit 1
+  fi
+  kill $M4_PID 2>/dev/null || true
+  echo "PASS: M4 a2a-serve e2e (agent card public, JSON-RPC POST requires auth)"
+fi

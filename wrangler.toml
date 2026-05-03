@@ -1,0 +1,13 @@
+name = "mote-a2a"
+main = "src/entry/a2a-worker.ts"
+compatibility_date = "2026-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Set MOTE_A2A_TOKEN, LLM_API_KEY, MOTE_A2A_URL via:
+#   wrangler secret put MOTE_A2A_TOKEN
+#   wrangler secret put LLM_API_KEY
+#
+# Or define [vars] for non-secret config:
+[vars]
+LLM_PROVIDER = "anthropic"
+LLM_MODEL = "claude-sonnet-4-6"
