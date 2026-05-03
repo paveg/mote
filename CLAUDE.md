@@ -85,9 +85,11 @@ LLM calls go through a swappable `complete()` so a mock provider can stand in.
 - Split further within a milestone if the change can be decomposed
 - Push and PR creation require explicit user confirmation
 
-## Current milestone
+## Current backlog
 
-See `tasks/todo.md`.
+See [GitHub Issues](https://github.com/paveg/mote/issues) for active work (pentest follow-ups labeled `pentest-follow-up`, dogfood findings labeled `dogfooding`). Completed milestones live in `docs/HISTORY.md`. ADRs are in `docs/adr/`.
+
+Per `~/.claude/rules/workflow.md`, project-local lessons would go in `tasks/lessons.md`. mote intentionally does NOT use that file — the only lesson learned during M0–M5 (post-phase direct-push slip) was generic enough that it was elevated into the global `workflow.md` rule itself.
 
 ## Reference: connection to derivative research
 
