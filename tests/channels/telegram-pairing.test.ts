@@ -70,4 +70,45 @@ describe("createPairingStore", () => {
     const p = store.generate(99);
     expect(p.expiresAt).toBe(150);
   });
+
+  it("generate() for the same userId twice keeps only the latest entry in the pending map", () => {
+    const store = createPairingStore();
+    const a = store.generate(7);
+    const b = store.generate(7);
+    expect(a.code).not.toBe(b.code);
+    // The first code is no longer redeemable
+    expect(store.redeem(a.code)).toEqual({ ok: false, reason: "not_found" });
+    // The second code IS redeemable
+    expect(store.redeem(b.code)).toEqual({ ok: true, userId: 7 });
+  });
+
+  it("generate() does not affect entries for other userIds", () => {
+    const store = createPairingStore();
+    const u1 = store.generate(1);
+    const u2 = store.generate(2);
+    store.generate(1); // re-issue for user 1
+    expect(store.redeem(u2.code)).toEqual({ ok: true, userId: 2 });
+  });
+
+  it("redeem() removes both forward and reverse index entries", () => {
+    const store = createPairingStore();
+    const a = store.generate(11);
+    expect(store.redeem(a.code)).toEqual({ ok: true, userId: 11 });
+    // Issuing a fresh code for the same user should not collide
+    const b = store.generate(11);
+    expect(b.code).not.toBe(a.code);
+    expect(store.redeem(b.code)).toEqual({ ok: true, userId: 11 });
+  });
+
+  it("sweep() removes the reverse index entry for expired codes", () => {
+    let now = 0;
+    const store = createPairingStore({ ttlMs: 1000, clock: () => now });
+    store.generate(99);
+    now = 2000;
+    expect(store.sweep()).toBe(1);
+    // After sweep, generate() for the same user issues a fresh code (no leak)
+    const fresh = store.generate(99);
+    now = 2500;
+    expect(store.redeem(fresh.code)).toEqual({ ok: true, userId: 99 });
+  });
 });
