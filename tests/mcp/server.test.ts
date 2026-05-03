@@ -179,7 +179,7 @@ test("invoke_skill dispatches a public skill through the registry", async () => 
     name: "echo-skill",
     args: {},
   });
-  expect(out).toBe("skill-output");
+  expect(out).toBe('<skill-output skill="echo-skill">\nskill-output\n</skill-output>');
 });
 
 test("search_sessions returns 'No matches' for an empty corpus", async () => {
