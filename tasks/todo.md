@@ -289,12 +289,27 @@ M0–M5 are all shipped. The roadmap milestones are complete. Next directions (n
 
 ## Security backlog (carried across milestones)
 
+### Pre-channel ADR backlog
+
 - [ ] **Before M3 (MCP server)**: write **ADR-0009: MCP server security model**. Cover transport (stdio default; TCP behind shared-secret token), capability gating for `invoke_skill` (full tool registry vs curated subset), and rejection of unauthenticated TCP callers.
 - [ ] **Before M4 (A2A endpoint)**: write **ADR-0010: A2A endpoint security**. Cover `Access-Control-Allow-Origin` allowlist (no `*`), rate limiting (Hono `hono/rate-limiter`), request body size cap.
 - [x] **Before M5 (Telegram pairing)**: written as **ADR-0012** (Accepted 2026-05-03) — long-poll default, bot-token validated + redacted, allowlist file (`0o600`, separate from `state.db`), 128-bit single-use pairing codes with 24h TTL, RestrictedRegistry **always** (no master opt-in), normalized envelope, audit log with SHA-256-prefixed codes
 - [x] **Before any `bash` tool**: written as **ADR-0013** (Accepted 2026-05-03) — sandbox required (`srt` / `nono`), allowlist mode default, workspace-confined cwd, timeout / output cap / audit log, opt-in via `MOTE_BASH_ENABLED`, never exposed via MCP / A2A
 - [ ] **Before any `write_file` tool**: write a parallel ADR (workspace-confined; audit log; no sandbox needed; same shell-metachar concerns absent)
 - [ ] **Before any `network-fetch` tool**: write a parallel ADR (host allowlist; timeout; SSRF block via private-IP rejection)
+
+### Pentest 2026-05-03 follow-up — remaining MEDIUM findings
+
+A pentest pass on 2026-05-03 produced 8 HIGH + 12 MEDIUM findings. The 8 HIGH were all addressed in PRs #1–#9 (merged). 6 MEDIUM remain as follow-up work; severity is "defense-in-depth gap" rather than active exploit vector.
+
+- [ ] **M3 — `memory_edit` length / null-byte limit** (`src/core/tools/memory.ts`). `EditArgs` schema accepts arbitrary-length `replace`. Add `v.maxLength(4096)` (or similar sane cap) and reject embedded `\0` so prompt-injection-driven floods or binary smuggling can't deform MEMORY.md.
+- [ ] **M5 — `composeLlmsTxt` skill name/description escaping** (`src/mcp/llms-txt.ts:33-36`). Skill `name` and `description` flow into Markdown without escape; a SKILL.md with `\n## Injected Heading` corrupts the generated `llms.txt`. Strip or escape `\n` / `\r` (and control chars) before embedding.
+- [ ] **M8 — Telegram audit log rotation** (`src/channels/telegram-audit.ts`). Append-only log grows unbounded; a slow-pairing-storm DoS over months can fill disk. Add size-based rotation (e.g., truncate-on-2MB or roll to `.1` / `.2`) or document an external `logrotate` config.
+- [ ] **M9 — openai-compat error body sanitize** (`src/providers/openai-compat.ts:258-269`). The `text.slice(0, 200)` snippet from a provider error body could echo a Bearer / `sk-` token if the upstream proxy reflects auth in error messages. Strip patterns matching `/(Bearer|sk-|api[-_]?key)\S+/gi` before logging or surfacing.
+- [ ] **M10 — `AbortSignal` propagation to `provider.complete()`** (`src/core/loop.ts`, both providers). `ctx.signal` is checked at the top of the outer while loop but not forwarded into the in-flight HTTP fetch. SIGINT mid-call doesn't terminate the request. Add `signal?: AbortSignal` to `CompletionRequest` and pipe to `fetch({ signal })` / Anthropic SDK.
+- [ ] **M12 — `/revoke` Number.isSafeInteger guard** (`src/channels/telegram.ts` /revoke command parser). `parseInt` accepts `-99999999999999999999` (unsafe integer) and forwards to `allowlist.remove`. No security impact today, but adds confusing master replies and a future-bug surface. Add `Number.isSafeInteger` rejection before dispatch.
+
+Each can land as a single-PR follow-up; none requires a new ADR. Recommended priority: M10 (operator UX — Ctrl-C should actually stop) > M9 (defense-in-depth on token leak) > M3 + M5 (input validation hardening) > M8 (long-term ops) > M12 (cosmetic).
 
 ## Completed milestones
 
