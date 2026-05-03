@@ -214,40 +214,55 @@ Per-skill `mcp.tools` allowlist, zxcvbn entropy estimation, multi-token rotation
 
 ---
 
-## Active milestone: M5 — Telegram channel
+## Completed milestone: M5 — Telegram channel ✅
 
-> Goal: expose mote as a Telegram bot with DM pairing flow + RestrictedRegistry tool surface. ADR-0012 governs the security model.
+Completed 2026-05-03 across 2 waves (10 commits total). Project total: **~2,820 LOC production / 320 unit tests + 1 skip + e2e smoke covering M0/M1/M2/M4/M5 fail-closed**.
 
 ### M5 done criteria
 
-- [ ] `bun run gateway` long-polls `getUpdates` against `https://api.telegram.org/bot<token>/getUpdates` (ADR-0012 D1)
-- [ ] `MOTE_TELEGRAM_TOKEN` validated at startup (`\d+:[A-Za-z0-9_-]{35}` + obvious-test denylist); fail-closed if unset/malformed (D2)
-- [ ] Bot token redaction canary test: token never appears in any thrown error / log line / audit entry (D2)
-- [ ] Allowlist persisted at `<workspaceDir>/telegram-allowlist.json` (mode `0o600`); not in `state.db` (D3)
-- [ ] Pairing flow: pending DM → 128-bit hex code (`crypto.randomBytes(16)`); master `/approve <code>` adds to allowlist; codes are single-use, 24h TTL, in-memory (D4)
-- [ ] Master `/revoke <userId>` removes from allowlist (D4)
-- [ ] Approved DMs (master OR paired user) → `runLoop` receives **always** RestrictedRegistry (no master opt-in path) (D5)
-- [ ] Inbound envelope normalized to `{ channel: "telegram", from, timestamp, body }` (D6)
-- [ ] Audit log at `<workspaceDir>/telegram-audit.log` (mode `0o600`); pairing codes stored as SHA-256 prefix (8 hex); bot token NEVER in log (D7)
-- [ ] Voice / photo / file → "text only" reply; group / channel posts silently ignored (D8)
+- [x] `bun run gateway` long-polls `getUpdates` against `https://api.telegram.org/bot<token>/getUpdates` (ADR-0012 D1)
+- [x] `MOTE_TELEGRAM_TOKEN` validated at startup; fail-closed if unset/malformed (D2)
+- [x] Bot token redaction canary tests at every error path: callApi (3 paths), defaultAgentReply, gateway outer catch (multi-occurrence via `split.join`), audit log
+- [x] Allowlist persisted at `<workspaceDir>/telegram-allowlist.json` (mode `0o600`); not in `state.db` (D3)
+- [x] Pairing flow: 128-bit hex code via `crypto.randomBytes(16)`; `/approve <code>` adds to allowlist; codes single-use, 24h TTL, in-memory; discriminated `RedeemResult` distinguishes `not_found` vs `expired` so the bot replies correctly per ADR-0012 §Verification (D4)
+- [x] `/revoke <userId>` removes from allowlist; revoked user re-enters pairing flow on next DM (D4)
+- [x] Approved DMs (master OR paired user) → `runLoop` receives the same RestrictedRegistry (no master opt-in path) (D5)
+- [x] Inbound envelope normalized to `{ channel: "telegram", from, timestamp, body }` (D6)
+- [x] Audit log at `<workspaceDir>/telegram-audit.log` (mode `0o600`); pairing codes stored as SHA-256 8-hex prefix; bot token never written; `\t` / `\n` / `\r` sanitized from user-controlled fields to prevent log injection (D7)
+- [x] Voice / photo / file / unrecognized media → `[unsupported: <kind>]` envelope → "Sorry, text only." reply; group / channel posts silently ignored at `normalizeUpdate` (D8)
 
-### M5 implementation tasks
+### M5 implementation tasks (all completed)
 
-#### Wave 1 — primitives (allowlist + pairing + audit)
+#### Wave 1 — primitives (3 commits each: feat + review-driven fix)
 
-- [ ] `src/channels/telegram-allowlist.ts` — file-based allowlist with `0o600` atomic writes, JSON schema validation (D3)
-- [ ] `src/channels/telegram-pairing.ts` — in-memory `Map<code, { userId, expiresAt }>` with 24h TTL, single-use semantics, `crypto.randomBytes(16).toString("hex")` codes (D4)
-- [ ] `src/channels/telegram-audit.ts` — append-only logger; redacts bot token; SHA-256 prefix for pairing codes (D7)
-- [ ] Tests: each module has happy path + boundary (expired code, missing/malformed allowlist file, audit redaction canary)
+| # | Module | Commits |
+|---|---|---|
+| 1 | `src/channels/telegram-allowlist.ts` (file-backed, 0o600, atomic write) | `9260e1f` + `fed792c` (await/valibot diag/remove coverage) |
+| 2 | `src/channels/telegram-pairing.ts` (128-bit codes, 24h TTL, single-use) | `bfb5382` + `4764228` (discriminated RedeemResult) + `2b30d57` (slot-consumed assertion) |
+| 3 | `src/channels/telegram-audit.ts` (token-redacted, SHA-256 prefix) | `9edef14` + `b30d67c` (empty-token guard / recreation 0o600 / log-injection sanitize) |
 
-#### Wave 2 — gateway + entry + e2e
+Wave 1 LOC: 193 production / 271 tests.
 
-- [ ] `src/channels/telegram.ts` — `createTelegramGateway(ctx, opts)` factory: long-poll loop with `update_id` offset, sendMessage helper, command parser (`/approve`, `/revoke`), envelope normalization, RestrictedRegistry construction matching ADR-0011 D4 (D1/D5/D6)
-- [ ] `src/entry/gateway.ts` — Bun entry; validates `MOTE_TELEGRAM_TOKEN` format + `MOTE_TELEGRAM_MASTER_ID` required; fail-closed (D2)
-- [ ] DM-only filter (`chat.type === "private"`); voice/photo/file reply (D8)
-- [ ] `package.json` script: `gateway`
-- [ ] `tests/e2e/m0.sh` extension — Telegram smoke (auto-skips without `MOTE_TELEGRAM_TOKEN` + `MOTE_TELEGRAM_MASTER_ID`)
-- [ ] README + CLAUDE.md updates: bot creation flow, env var setup, `MOTE_TELEGRAM_MASTER_ID` discovery
+#### Wave 2 — gateway + entry + e2e + docs
+
+| # | Module | Commits |
+|---|---|---|
+| 5 | `src/channels/telegram.ts` envelope normalization (DM-only) | `0cb1095` + `334a39e` (unknown-media / optional from) |
+| 6 | `src/channels/telegram.ts` validateToken + RestrictedRegistry builder | `74b345e` + `bf28113` (trailing-newline test) |
+| 7a | `src/channels/telegram.ts` callApi (token-redacting HTTP wrapper) | `08870a5` |
+| 7b | `src/channels/telegram.ts` dispatch + long-poll | `732881e` + `13c66ba` (multi-occurrence redaction / audit semantics / post-revoke test) |
+| 8 | `src/entry/gateway.ts` + `src/entry/gateway-opts.ts` | `736d305` |
+| 9 | `tests/e2e/m0.sh` M5 fail-closed startup smoke | `eb74a4c` |
+| 10 | `README.md` (M0–M5 entries + Telegram setup) | `6b86d57` |
+
+Wave 2 LOC: 432 production / 903 tests.
+
+### Security invariants from prior milestones still hold
+
+- ADR-0008 workspace confinement — Telegram allowlist + audit live inside `workspaceDir`
+- ADR-0011 D4 RestrictedRegistry — same mechanism reused; built-in tools never reach Telegram
+- 0o600 file-mode discipline — extended to `telegram-allowlist.json` and `telegram-audit.log`
+- Token redaction regression tests — added at every error path (canary asserts no token substring leaks)
 
 ### Out of scope for M5
 
@@ -258,6 +273,17 @@ Per-skill `mcp.tools` allowlist, zxcvbn entropy estimation, multi-token rotation
 - Rate limiting beyond pairing-code attempts
 - i18n of bot replies (English only)
 - Master opt-in to full registry — explicitly rejected by ADR-0012 D5
+
+---
+
+## No active milestone
+
+M0–M5 are all shipped. The roadmap milestones are complete. Next directions (none in flight):
+
+- Webhook transport for Telegram (post-M5 ADR; needed only if Workers deployment becomes attractive)
+- `write_file` tool ADR + implementation
+- `network-fetch` tool ADR + implementation
+- `bash` tool implementation (ADR-0013 already locks the policy)
 
 ---
 
@@ -279,3 +305,4 @@ Per-skill `mcp.tools` allowlist, zxcvbn entropy estimation, multi-token rotation
 - **Boundary CRITICAL fixes + Tier 1/2 cost work** (2026-05-03, post-M2). 3 commits: pinned 4 audited boundary cases (no code fixes needed — implementations already correct), added `parent_session_id` schema with idempotent migration (recovers impl-guide §5 deviation, foundation for Tier 3 compaction), split system prompt into multi-block cached sections so MEMORY.md edits no longer invalidate the base/SOUL caches. 9 new tests, 172 unit tests + 1 skip.
 - **M3 — MCP server export** (2026-05-02). 2 commits (foundations + server). `LoadedSkill` gains `mcp: "public" | "private"` field; `SqliteState` gains `listSessions` / `getSession`; `src/mcp/server.ts` exposes 6 ADR-0009 D2 tools; `src/mcp/llms-txt.ts` generates llms.txt on startup; `src/entry/mcp-serve.ts` wires stdio transport. 218 unit tests + 1 skip.
 - **M4 — A2A endpoint** (2026-05-03). 2 commits (Wave 1 + Wave 2). `SqliteTaskStore` adds the `a2a_tasks` table; `src/channels/a2a.ts` builds a per-request `RestrictedRegistry` (public skills only), validates the bearer token (length + denylist) at startup, and redacts the `Authorization` header before any logger sees it (ADR-0011 D2/D3/D4); `src/entry/a2a-serve.ts` fail-closes when a non-localhost bind lacks TLS env (D1); `src/entry/a2a-worker.ts` + `wrangler.toml` ship the same factory on Cloudflare Workers with `InMemoryTaskStore`.
+- **M5 — Telegram channel** (2026-05-03). 10 commits across 2 waves (Wave 1 = 3 primitives, Wave 2 = gateway + entry + smoke + docs). 625 LOC production / 1,174 LOC tests. ADR-0012 12 §Verification items all mapped to tests; CRITICAL findings caught in review (vacuous `rejects.toThrow`, `String.prototype.replace` redacting only first occurrence, audit `approved` semantic mismatch on unsupported content) all root-cause fixed before merge. RestrictedRegistry pattern carried over from ADR-0011 — Telegram is always restricted, no master opt-in (D5).
