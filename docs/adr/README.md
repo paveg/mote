@@ -21,3 +21,4 @@ Accepted design decisions for mote. To add a new one:
 | 0009 | [MCP server security model](./0009-mcp-server-security-model.md) | Accepted |
 | 0010 | [A2A endpoint security model](./0010-a2a-endpoint-security-model.md) | Accepted |
 | 0011 | [A2A endpoint hardening (TLS, token entropy, log redaction, RestrictedRegistry)](./0011-a2a-endpoint-hardening.md) | Accepted |
+| 0013 | [bash tool security policy](./0013-bash-tool-security-policy.md) | Proposed |

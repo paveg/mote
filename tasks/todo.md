@@ -250,7 +250,9 @@ Completed 2026-05-02 across 2 commits (foundations + server). Project total: **~
 - [ ] **Before M3 (MCP server)**: write **ADR-0009: MCP server security model**. Cover transport (stdio default; TCP behind shared-secret token), capability gating for `invoke_skill` (full tool registry vs curated subset), and rejection of unauthenticated TCP callers.
 - [ ] **Before M4 (A2A endpoint)**: write **ADR-0010: A2A endpoint security**. Cover `Access-Control-Allow-Origin` allowlist (no `*`), rate limiting (Hono `hono/rate-limiter`), request body size cap.
 - [ ] **Before M5 (Telegram pairing)**: write **ADR-0012: Telegram channel security** (renumbered from 0011 — that slot was taken by A2A endpoint hardening). Cover pairing-code entropy (≥128 bits via `crypto.randomBytes(16).toString("hex")`, single-use), allowlist storage (file with `0o600` or env-var-only, NOT inside writable `state.db`), and inbound `from.id` allowlist enforcement before any tool dispatch.
-- [ ] **Before any `bash` / `write_file` / network-fetch tool**: extend **ADR-0008** scope or write a follow-up ADR covering shell metachar handling, executable allowlist, and timeouts.
+- [x] **Before any `bash` tool**: written as **ADR-0013** (Proposed 2026-05-03) — sandbox required (`srt` / `nono`), allowlist mode default, workspace-confined cwd, timeout / output cap / audit log, opt-in via `MOTE_BASH_ENABLED`, never exposed via MCP / A2A
+- [ ] **Before any `write_file` tool**: write a parallel ADR (workspace-confined; audit log; no sandbox needed; same shell-metachar concerns absent)
+- [ ] **Before any `network-fetch` tool**: write a parallel ADR (host allowlist; timeout; SSRF block via private-IP rejection)
 
 ## Completed milestones
 
