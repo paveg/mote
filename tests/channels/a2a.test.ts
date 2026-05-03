@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createA2aApp } from "@/channels/a2a";
+import { createA2aApp, buildLogRedactor } from "@/channels/a2a";
 import { SqliteState } from "@/core/state";
 import { ensureWorkspace } from "@/core/workspace";
 import { ToolRegistry } from "@/core/registry";
@@ -75,33 +75,26 @@ test("createA2aApp throws when token is too short", () => {
   ).toThrow(/at least 32 characters/);
 });
 
-test("createA2aApp throws on exact denylist token (case-insensitive)", () => {
-  // A token that is exactly "changeme" in lowercase — padded to 32 chars
-  // it is no longer on the denylist because toLowerCase("changemeXXXXXXXXXXXXXX")
-  // !== "changeme". The denylist check is for exact match after toLowerCase.
-  // So we test with an exact 32-char string whose lowercase is still on the list.
-  // Note: "changeme" is only 8 chars so we cannot pad it to 32 and still match.
-  // Instead, test that the exact short denylist word throws for < 32 chars (short path):
+test("createA2aApp throws on token containing a denylist substring (case-insensitive)", () => {
+  // Short token: still fails on length check
   expect(() =>
     createA2aApp(stubCtx(workspaceDir, state), {
       skills: [],
       taskStore: state.a2aTaskStore,
       token: "password",
     }),
-  ).toThrow(); // throws for length < 32, regardless of denylist
+  ).toThrow(); // throws for length < 32
 
-  // Verify that the denylist message appears when the token is exactly a denylist word
-  // but meets the length requirement — this requires a word that is exactly 32 chars.
-  // None of the denylist words are 32 chars, so we test via the shorter path above.
-  // Additional assertion: a padded token that starts with "changeme" is NOT denied.
-  const paddedNonDenylist = "changeme".padEnd(32, "X");
+  // A token padded to 32 chars that CONTAINS "changeme" now also throws
+  // because the denylist uses substring matching (M1 fix).
+  const paddedWithDenylistSubstring = "changeme".padEnd(32, "X");
   expect(() =>
     createA2aApp(stubCtx(workspaceDir, state), {
       skills: [],
       taskStore: state.a2aTaskStore,
-      token: paddedNonDenylist,
+      token: paddedWithDenylistSubstring,
     }),
-  ).not.toThrow();
+  ).toThrow(/denylist/i);
 });
 
 test("createA2aApp accepts a strong token and returns a Hono app", () => {
@@ -170,7 +163,7 @@ test("JSON-RPC requests without Authorization header are rejected", async () => 
 // Token redaction canary: the bearer token must NEVER appear in any
 // error response body (ADR-0011 D3).
 test("REGRESSION: bearer token never appears in error response bodies", async () => {
-  const CANARY = "CANARY-TOKEN-DO-NOT-LEAK-1234567890abcd"; // 40 chars
+  const CANARY = "CANARY-DO-NOT-LEAK-1234567890abcdefghij"; // 40 chars, no denylist substring
   const app = createA2aApp(stubCtx(workspaceDir, state), {
     skills: [],
     taskStore: state.a2aTaskStore,
@@ -187,4 +180,141 @@ test("REGRESSION: bearer token never appears in error response bodies", async ()
   });
   const body = await res.text();
   expect(body).not.toContain(CANARY);
+});
+
+// ── F2: buildLogRedactor must actually mutate the Authorization header ──────
+
+test("F2: buildLogRedactor replaces Authorization header with Bearer <redacted>", async () => {
+  const TOKEN = "x".repeat(32);
+  const capturedHeaders: Headers[] = [];
+
+  // Build a minimal mock Hono Context with a mutable Headers object.
+  const mutableHeaders = new Headers({ authorization: `Bearer ${TOKEN}` });
+  const mockCtx = {
+    req: {
+      raw: {
+        headers: mutableHeaders,
+      },
+    },
+    set: () => {},
+  } as unknown as import("hono").Context;
+
+  const middleware = buildLogRedactor();
+  await middleware(mockCtx, async () => {
+    capturedHeaders.push(mockCtx.req.raw.headers);
+  });
+
+  expect(capturedHeaders.length).toBe(1);
+  const authValue = capturedHeaders[0]?.get("authorization");
+  expect(authValue).toBe("Bearer <redacted>");
+  expect(authValue).not.toContain(TOKEN);
+});
+
+// ── F8: authMiddleware must use allowlist (protect all except agent card) ────
+
+test("F8: rejects unauthenticated POST // (path-normalization bypass attempt)", async () => {
+  const app = createA2aApp(stubCtx(workspaceDir, state), {
+    skills: [],
+    taskStore: state.a2aTaskStore,
+    token: STRONG_TOKEN,
+  });
+  const res = await app.request("//", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  expect(res.status).toBe(401);
+});
+
+test("F8: rejects unauthenticated GET /v1/something (any non-agent-card route)", async () => {
+  const app = createA2aApp(stubCtx(workspaceDir, state), {
+    skills: [],
+    taskStore: state.a2aTaskStore,
+    token: STRONG_TOKEN,
+  });
+  const res = await app.request("/v1/something", {
+    method: "GET",
+  });
+  expect(res.status).toBe(401);
+});
+
+test("F8: permits unauthenticated GET /.well-known/agent-card.json (already passed, stays green)", async () => {
+  const app = createA2aApp(stubCtx(workspaceDir, state), {
+    skills: [],
+    taskStore: state.a2aTaskStore,
+    token: STRONG_TOKEN,
+  });
+  const res = await app.request("/.well-known/agent-card.json");
+  expect(res.status).toBe(200);
+});
+
+// ── M1: TOKEN_DENYLIST must use substring match ──────────────────────────────
+
+test("M1: rejects MOTE_A2A_TOKEN that contains a denylisted substring at length 32+", () => {
+  // "testtesttesttesttesttesttesttest" is 32 chars and contains "test"
+  expect(() =>
+    createA2aApp(stubCtx(workspaceDir, state), {
+      skills: [],
+      taskStore: state.a2aTaskStore,
+      token: "testtesttesttesttesttesttesttest",
+    }),
+  ).toThrow(/denylist/i);
+});
+
+test("M1: rejects MOTE_A2A_TOKEN that contains 'changeme' as a substring", () => {
+  // 32+ chars, contains "changeme"
+  expect(() =>
+    createA2aApp(stubCtx(workspaceDir, state), {
+      skills: [],
+      taskStore: state.a2aTaskStore,
+      token: "changeme1234567890123456789012345",
+    }),
+  ).toThrow(/denylist/i);
+});
+
+test("M1: accepts a 32+ char token that doesn't match any denylisted substring", () => {
+  // Use a random-looking token with no denylist substrings
+  const safeToken = "Zq9mK2rX8vLpNw7bAcDe3FgHiJoUsY6T"; // 32 chars
+  expect(() =>
+    createA2aApp(stubCtx(workspaceDir, state), {
+      skills: [],
+      taskStore: state.a2aTaskStore,
+      token: safeToken,
+    }),
+  ).not.toThrow();
+});
+
+// ── M2: a2a-worker must not mutate process.env ───────────────────────────────
+
+test("M2: a2a-worker does not mutate process.env when handling a request", async () => {
+  const worker = await import("@/entry/a2a-worker");
+
+  // Save exact env state before the call.
+  const keysBefore = new Set(Object.keys(process.env));
+  const tokenBefore = process.env["MOTE_A2A_TOKEN"];
+  const modelBefore = process.env["LLM_MODEL"];
+  const apiKeyBefore = process.env["LLM_API_KEY"];
+
+  const env = {
+    MOTE_A2A_TOKEN: STRONG_TOKEN,
+    LLM_API_KEY: "sk-test-key-for-unit-test",
+    LLM_PROVIDER: "anthropic",
+    LLM_MODEL: "claude-sonnet-4-6",
+    LLM_BASE_URL: undefined,
+    MOTE_A2A_URL: "http://localhost:8787",
+    MOTE_A2A_MAX_BODY: undefined,
+  };
+
+  const req = new Request("http://localhost:8787/.well-known/agent-card.json");
+  await worker.default.fetch(req, env as Parameters<typeof worker.default.fetch>[1]);
+
+  // process.env must be bitwise identical to what it was before the call.
+  expect(process.env["MOTE_A2A_TOKEN"]).toBe(tokenBefore);
+  expect(process.env["LLM_MODEL"]).toBe(modelBefore);
+  expect(process.env["LLM_API_KEY"]).toBe(apiKeyBefore);
+  // No new keys added.
+  const keysAfter = new Set(Object.keys(process.env));
+  for (const key of keysAfter) {
+    expect(keysBefore.has(key)).toBe(true);
+  }
 });
