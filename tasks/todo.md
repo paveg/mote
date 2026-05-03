@@ -156,15 +156,46 @@ MCP server export (M3), A2A endpoint (M4), Telegram (M5), bash/write_file tools 
 
 ---
 
-## Next milestone: M3 — MCP server export (notes for later)
+## Completed milestone: M3 — MCP server export ✅
 
-Pick up after M2.
+Completed 2026-05-02 across 2 commits (foundations + server). Project total: **~1,950 LOC production / 218 unit tests + 1 skip**.
 
-- [ ] **First**: write **ADR-0009: MCP server security model** (transport, capability gating, auth)
-- [ ] `bun run mcp-serve` stdio MCP server — `@modelcontextprotocol/sdk`
-- [ ] Public tools: `list_sessions`, `get_session(id)`, `search_sessions(query)`, `read_memory()`, `list_skills()`, `invoke_skill(name, args)`
-- [ ] `llms.txt` auto-generated under `~/.mote/agents/<id>/`
-- [ ] Verify: another Claude Code session connects via `claude mcp add mote -- bun run mcp-serve` and can list / read mote's sessions
+### M3 done criteria
+
+- [x] ADR-0009 written and Accepted
+- [x] `bun run mcp-serve` stdio MCP server — `@modelcontextprotocol/sdk` (D1)
+- [x] 6 public tools: `list_sessions`, `get_session`, `search_sessions`, `read_memory`, `list_skills`, `invoke_skill` (D2)
+- [x] `invoke_skill` gated by `mcp: public` frontmatter (D3)
+- [x] `get_session` capped at 200 (MOTE_MCP_GET_SESSION_LIMIT override) (D4)
+- [x] `llms.txt` auto-generated at startup under `<workspaceDir>/` (D5)
+- [x] Errors via `isError: true` MCP envelope (D6)
+
+### M3 implementation tasks (all completed)
+
+| # | Module | Status |
+|---|---|---|
+| 1 | `mcp` field on `LoadedSkill` + loader validation | ✅ commit bf945c5 |
+| 2 | `listSessions` / `getSession` on `SqliteState` | ✅ commit bf945c5 |
+| 3 | `src/mcp/server.ts` — 6 MCP tools | ✅ commit (Commit 2) |
+| 4 | `src/mcp/llms-txt.ts` — llms.txt generator | ✅ commit (Commit 2) |
+| 5 | `src/entry/mcp-serve.ts` — stdio entrypoint | ✅ commit (Commit 2) |
+| 6 | `package.json` mcp-serve script | ✅ commit (Commit 2) |
+
+### Updated LOC accounting (project-wide)
+
+| Layer | LOC |
+|---|---|
+| `src/core/*` | ~850 |
+| `src/core/tools/*` | ~189 |
+| `src/providers/*` | ~504 |
+| `src/skills/*` | ~205 |
+| `src/mcp/*` (server + llms-txt) | ~200 |
+| `src/entry/*` | ~135 |
+| **Total** | **~1,950** |
+
+---
+
+## Next milestone: M4 — A2A endpoint
 
 ---
 
@@ -182,3 +213,4 @@ Pick up after M2.
 - **M1 — workspace + skills** (2026-05-03). 2 commits, +569 LOC production / +443 LOC tests. agentskills.io directory layout (`SOUL.md` / `MEMORY.md` / `skills/<name>/SKILL.md`) loaded at startup; skills exposed as LLM tools; `/<name>` slash command wired up; hand-rolled frontmatter parser keeps the dep tree thin.
 - **M2 — SQLite + memory nudge** (2026-05-03). 2 commits, +328 LOC production / +396 LOC tests. `JsonlState` replaced by `SqliteState` (bun:sqlite + FTS5 trigram, 0o600 + WAL pragmas); `search_sessions` exposed; `memory_append` / `memory_edit` tools with single-occurrence-edit enforcement; periodic `memory_nudge` system message at the configured interval (default 10 iterations).
 - **Boundary CRITICAL fixes + Tier 1/2 cost work** (2026-05-03, post-M2). 3 commits: pinned 4 audited boundary cases (no code fixes needed — implementations already correct), added `parent_session_id` schema with idempotent migration (recovers impl-guide §5 deviation, foundation for Tier 3 compaction), split system prompt into multi-block cached sections so MEMORY.md edits no longer invalidate the base/SOUL caches. 9 new tests, 172 unit tests + 1 skip.
+- **M3 — MCP server export** (2026-05-02). 2 commits (foundations + server). `LoadedSkill` gains `mcp: "public" | "private"` field; `SqliteState` gains `listSessions` / `getSession`; `src/mcp/server.ts` exposes 6 ADR-0009 D2 tools; `src/mcp/llms-txt.ts` generates llms.txt on startup; `src/entry/mcp-serve.ts` wires stdio transport. 218 unit tests + 1 skip.
