@@ -41,6 +41,10 @@ export interface IterationBudget {
 export interface RunOptions {
   maxIterations: number;
   budget: IterationBudget;
+  // Memory-nudge interval (in completed iterations). 0 disables the
+  // mechanism. Default: 10. Implemented in core/loop.ts via
+  // MemoryNudge.shouldFire().
+  memoryNudgeInterval?: number;
 }
 
 export interface RunResult {

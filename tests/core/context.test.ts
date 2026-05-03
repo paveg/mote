@@ -232,7 +232,7 @@ testM1("buildContext registers loaded skills alongside read_file in the default 
 
   const ctx = await buildContextM1({ home: fakeHomeM1, provider: noopProviderM1 });
   const names = ctx.registry.schemas().map((s) => s.name).sort();
-  expectM1(names).toEqual(["hello", "read_file", "search_sessions"]);
+  expectM1(names).toEqual(["hello", "memory_append", "memory_edit", "read_file", "search_sessions"]);
 });
 
 testM1("buildContext default systemPrompt includes SOUL.md when present", async () => {
@@ -309,4 +309,63 @@ testM2("buildContext registers search_sessions in the default registry", async (
   const ctx = await buildContextM2({ home: fakeHomeM2, provider: noopProviderM2 });
   const names = ctx.registry.schemas().map(s => s.name).sort();
   expectM2(names).toContain("search_sessions");
+});
+
+import { test as testM2b, expect as expectM2b, beforeEach as beforeEachM2b, afterEach as afterEachM2b } from "bun:test";
+import { mkdtemp as mkdtempM2b, rm as rmM2b } from "node:fs/promises";
+import { tmpdir as tmpdirM2b } from "node:os";
+import { join as joinM2b } from "node:path";
+import { buildContext as buildContextM2b } from "@/core/context";
+import type { Provider as ProviderM2b } from "@/providers/types";
+
+const noopProviderM2b: ProviderM2b = {
+  complete: async () => ({
+    assistant: { role: "assistant", content: [], createdAt: 0 },
+    toolCalls: [],
+    usage: { input: 0, output: 0 },
+  }),
+};
+
+let fakeHomeM2b: string;
+beforeEachM2b(async () => {
+  fakeHomeM2b = await mkdtempM2b(joinM2b(tmpdirM2b(), "mote-m2b-buildctx-"));
+});
+afterEachM2b(async () => {
+  await rmM2b(fakeHomeM2b, { recursive: true, force: true });
+});
+
+testM2b("buildContext registers memory_append and memory_edit by default", async () => {
+  const ctx = await buildContextM2b({ home: fakeHomeM2b, provider: noopProviderM2b });
+  const names = ctx.registry.schemas().map(s => s.name);
+  expectM2b(names).toContain("memory_append");
+  expectM2b(names).toContain("memory_edit");
+});
+
+testM2b("buildContext exposes a MemoryNudge with default interval 10", async () => {
+  const ctx = await buildContextM2b({ home: fakeHomeM2b, provider: noopProviderM2b });
+  expectM2b(ctx.memoryNudge).toBeDefined();
+  // Internal: fire 9 times, expect null; 10th should fire
+  for (let i = 0; i < 9; i++) expectM2b(ctx.memoryNudge!.shouldFire()).toBeNull();
+  expectM2b(ctx.memoryNudge!.shouldFire()).not.toBeNull();
+});
+
+testM2b("buildContext respects opts.memoryNudgeInterval", async () => {
+  const ctx = await buildContextM2b({
+    home: fakeHomeM2b,
+    provider: noopProviderM2b,
+    memoryNudgeInterval: 2,
+  });
+  expectM2b(ctx.memoryNudge!.shouldFire()).toBeNull();
+  expectM2b(ctx.memoryNudge!.shouldFire()).not.toBeNull();
+});
+
+testM2b("memoryNudgeInterval=0 disables the nudge", async () => {
+  const ctx = await buildContextM2b({
+    home: fakeHomeM2b,
+    provider: noopProviderM2b,
+    memoryNudgeInterval: 0,
+  });
+  for (let i = 0; i < 100; i++) {
+    expectM2b(ctx.memoryNudge!.shouldFire()).toBeNull();
+  }
 });

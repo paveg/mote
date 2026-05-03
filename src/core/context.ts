@@ -2,6 +2,7 @@ import type { Message, RunOptions } from "@/core/types";
 import type { Provider } from "@/providers/types";
 import type { ToolRegistry } from "@/core/registry";
 import type { SearchHit } from "@/core/state";
+import type { MemoryNudge } from "@/core/memory-nudge";
 
 // SessionState's full surface lands in M0 task #4 (state.ts). Declared here
 // so registry/handlers can typecheck against the contract right now;
@@ -24,6 +25,7 @@ export interface AgentContext {
   readonly opts: RunOptions;
   readonly signal: AbortSignal;
   readonly systemPrompt: () => string;
+  readonly memoryNudge?: MemoryNudge;
 }
 
 import { randomUUID } from "node:crypto";
@@ -36,9 +38,11 @@ import { createOpenAICompatProvider } from "@/providers/openai-compat";
 import type { IterationBudget, Usage } from "@/core/types";
 import { readFileTool } from "@/core/tools/read_file";
 import { searchSessionsTool } from "@/core/tools/search_sessions";
+import { memoryAppendTool, memoryEditTool } from "@/core/tools/memory";
 import { loadSkills } from "@/skills/loader";
 import { createSkillToolDefinition } from "@/skills/handler";
 import { composeSystemPrompt } from "@/core/persona";
+import { MemoryNudge as MemoryNudgeImpl } from "@/core/memory-nudge";
 
 export interface BuildContextOpts {
   agentId?: string;                // defaults to "default"
@@ -49,6 +53,7 @@ export interface BuildContextOpts {
   maxIterations?: number;          // defaults to 50
   initialBudget?: number;          // defaults to 1_000_000 (input+output tokens combined)
   home?: string;                   // injected for tests; defaults to os.homedir()
+  memoryNudgeInterval?: number;    // defaults to 10; 0 disables the nudge
 }
 
 // Picks the LLM provider implementation based on LLM_PROVIDER env var.
@@ -107,6 +112,8 @@ export async function buildContext(
     const r = new ToolRegistryImpl();
     r.register(readFileTool);
     r.register(searchSessionsTool);
+    r.register(memoryAppendTool);
+    r.register(memoryEditTool);
     for (const skill of skills) {
       r.register(createSkillToolDefinition(skill, { model: skillModel }));
     }
@@ -116,6 +123,7 @@ export async function buildContext(
   const provider = opts.provider ?? defaultProvider();
   const state = new SqliteState(workspaceDir);
   const signal = opts.signal ?? new AbortController().signal;
+  const memoryNudge = new MemoryNudgeImpl(opts.memoryNudgeInterval ?? 10);
 
   return {
     agentId,
@@ -130,5 +138,6 @@ export async function buildContext(
     },
     signal,
     systemPrompt: opts.systemPrompt ?? (() => composeSystemPrompt(soul, memory)),
+    memoryNudge,
   };
 }

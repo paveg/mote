@@ -83,6 +83,17 @@ export async function runLoop(
     }
 
     iter++;
+
+    const nudge = ctx.memoryNudge?.shouldFire();
+    if (nudge !== null && nudge !== undefined) {
+      const nudgeMessage: Message = {
+        role: "system",
+        content: [{ type: "text", text: nudge }],
+        createdAt: Date.now(),
+      };
+      messages.push(nudgeMessage);
+      await ctx.state.appendMessages(ctx.sessionId, [nudgeMessage]);
+    }
   }
 
   return { messages, iter };

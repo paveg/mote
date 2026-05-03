@@ -330,3 +330,68 @@ test("runLoop appends each new message to state immediately", async () => {
   if (!block || block.type !== "text") throw new Error("expected text");
   expect(block.text).toBe("hello");
 });
+
+// --- memory nudge --------------------------------------------------------
+
+import { MemoryNudge as MemoryNudgeForLoop } from "@/core/memory-nudge";
+
+test("runLoop injects a system-role nudge message at the configured interval", async () => {
+  const looper = (id: string) => ({
+    assistant: {
+      role: "assistant" as const,
+      content: [{ type: "tool_use" as const, id, name: "echo", input: {} }],
+      createdAt: 0,
+    },
+    toolCalls: [{ id, name: "echo", args: {} }],
+    usage: { input: 1, output: 1 },
+  });
+  const provider = scriptedProvider([
+    looper("tu_1"),
+    looper("tu_2"),
+    {
+      assistant: textMessage("assistant", "done"),
+      toolCalls: [],
+      usage: { input: 1, output: 1 },
+    },
+  ]);
+
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "echo",
+    description: "echo",
+    schema: v.object({}),
+    handler: async () => "ok",
+  });
+
+  const baseCtx = makeContext({ provider, registry, maxIterations: 10 });
+  const ctxWithNudge: typeof baseCtx = {
+    ...baseCtx,
+    memoryNudge: new MemoryNudgeForLoop(2),
+  };
+
+  const result = await runLoop(
+    [textMessage("user", "trigger nudge")],
+    ctxWithNudge,
+  );
+
+  // After 2 completed iterations, a system-role nudge message should
+  // be present. The assistant's third response is the natural-end turn.
+  const systemMessages = result.messages.filter(m => m.role === "system");
+  expect(systemMessages.length).toBeGreaterThanOrEqual(1);
+  const block = systemMessages[0]?.content[0];
+  if (!block || block.type !== "text") throw new Error("expected text block");
+  expect(block.text).toContain("memory_append");
+});
+
+test("runLoop does NOT inject a nudge when no MemoryNudge is configured", async () => {
+  const provider = scriptedProvider([
+    {
+      assistant: textMessage("assistant", "no tools"),
+      toolCalls: [],
+      usage: { input: 1, output: 1 },
+    },
+  ]);
+  const ctx = makeContext({ provider });
+  const result = await runLoop([textMessage("user", "hi")], ctx);
+  expect(result.messages.filter(m => m.role === "system")).toHaveLength(0);
+});

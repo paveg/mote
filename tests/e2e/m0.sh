@@ -114,3 +114,41 @@ if ! grep -q "mote-hello-marker" <<< "$SLASH_RESPONSE"; then
 fi
 
 echo "PASS: M1 slash command e2e (/hello dispatched and skill body executed)"
+
+# --- M2: memory_append e2e -------------------------------------------------
+
+# Use a fresh marker so the test passes regardless of prior runs leaving state.
+M2_MARKER="memory-marker-$(date +%s)"
+M2_PROMPT="The user has just told you their favorite color is blue. Use memory_append to record exactly: \"$M2_MARKER user color: blue\"."
+
+M2_RESPONSE="$(printf '%s\n/exit\n' "$M2_PROMPT" | bun run src/entry/agent.ts 2>&1 || true)"
+
+MEMORY_FILE="$WORKSPACE/MEMORY.md"
+if [ ! -f "$MEMORY_FILE" ]; then
+  echo "FAIL: M2 — MEMORY.md was not created"
+  echo "---"
+  echo "$M2_RESPONSE"
+  exit 1
+fi
+
+# Permission check (handles both macOS and Linux stat)
+if M2_PERMS="$(stat -f '%Lp' "$MEMORY_FILE" 2>/dev/null)"; then
+  : # macOS path
+else
+  M2_PERMS="$(stat -c '%a' "$MEMORY_FILE")"
+fi
+if [ "$M2_PERMS" != "600" ]; then
+  echo "FAIL: M2 — MEMORY.md mode is $M2_PERMS (expected 600)"
+  exit 1
+fi
+
+if ! grep -q "$M2_MARKER" "$MEMORY_FILE"; then
+  echo "FAIL: M2 — MEMORY.md does not contain the marker"
+  echo "---marker---"
+  echo "$M2_MARKER"
+  echo "---memory---"
+  cat "$MEMORY_FILE"
+  exit 1
+fi
+
+echo "PASS: M2 memory_append e2e (MEMORY.md created with marker, mode $M2_PERMS)"
