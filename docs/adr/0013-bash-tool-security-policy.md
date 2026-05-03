@@ -165,6 +165,7 @@ A future bash tool implementation must pass:
 
 - ADR-0008 (workspace confinement) — bash inherits cwd-locking + symlink rejection
 - ADR-0011 D4 (RestrictedRegistry) — A2A and MCP cannot reach bash even after enable
+- ADR-0015 (sub-call cost containment) — if a future bash extension dispatches an LLM call (e.g., subagent spawn), it MUST call `ctx.opts.budget.deduct` per the contract
 - `reference_external_watchlist.md` (project memory) — songmu / srt / nono context
 - Future ADR (when bash lands): implementation specifics, sandbox profile choice (`srt`'s `~/.srt-settings.json` pattern, or `nono`'s capability syntax)
 - Future ADR (parallel): `write_file` security policy — applies D4 (workspace confinement) and D6 (audit) but skips D2/D3/D5 (no sandbox / allowlist / shell semantics)

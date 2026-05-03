@@ -23,3 +23,5 @@ Accepted design decisions for mote. To add a new one:
 | 0011 | [A2A endpoint hardening (TLS, token entropy, log redaction, RestrictedRegistry)](./0011-a2a-endpoint-hardening.md) | Accepted |
 | 0012 | [Telegram channel security model](./0012-telegram-channel-security-model.md) | Accepted |
 | 0013 | [bash tool security policy](./0013-bash-tool-security-policy.md) | Accepted |
+| 0014 | [Untrusted content fencing in system prompt and tool_result](./0014-untrusted-content-fencing.md) | Accepted |
+| 0015 | [Sub-call cost containment](./0015-sub-call-cost-containment.md) | Accepted |
