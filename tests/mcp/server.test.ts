@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createMoteMcpServer } from "@/mcp/server";
+import { createMoteMcpServer, listSessionsLimit, getSessionLimit } from "@/mcp/server";
 import { ToolRegistry } from "@/core/registry";
 import { SqliteState } from "@/core/state";
 import { ensureWorkspace } from "@/core/workspace";
@@ -198,4 +198,39 @@ test("list_skills returns '(no skills installed)' when empty", async () => {
   const { tools } = createMoteMcpServer(ctx, []);
   const out = await findTool(tools, "list_skills").handler({});
   expect(out).toBe("(no skills installed)");
+});
+
+test("list_sessions MCP tool defaults to 100 rows", async () => {
+  const base = Date.now();
+  for (let i = 0; i < 150; i++) {
+    await state.appendMessages(`s_mcp_${i}`, [
+      { role: "user", content: [{ type: "text", text: `msg ${i}` }], createdAt: base + i },
+    ]);
+  }
+  const { tools } = createMoteMcpServer(ctx, []);
+  const out = await findTool(tools, "list_sessions").handler({});
+  const lines = out.split("\n").filter((l: string) => l.startsWith("- "));
+  expect(lines).toHaveLength(100);
+});
+
+test("MOTE_MCP_LIST_SESSIONS_LIMIT env caps at 10000 even when set higher", () => {
+  const prev = process.env["MOTE_MCP_LIST_SESSIONS_LIMIT"];
+  process.env["MOTE_MCP_LIST_SESSIONS_LIMIT"] = "999999";
+  try {
+    expect(listSessionsLimit()).toBe(10_000);
+  } finally {
+    if (prev === undefined) delete process.env["MOTE_MCP_LIST_SESSIONS_LIMIT"];
+    else process.env["MOTE_MCP_LIST_SESSIONS_LIMIT"] = prev;
+  }
+});
+
+test("getSessionLimit also caps at 10000 (co-fix)", () => {
+  const prev = process.env["MOTE_MCP_GET_SESSION_LIMIT"];
+  process.env["MOTE_MCP_GET_SESSION_LIMIT"] = "999999";
+  try {
+    expect(getSessionLimit()).toBe(10_000);
+  } finally {
+    if (prev === undefined) delete process.env["MOTE_MCP_GET_SESSION_LIMIT"];
+    else process.env["MOTE_MCP_GET_SESSION_LIMIT"] = prev;
+  }
 });

@@ -23,7 +23,7 @@ export interface SessionState {
   loadLatestSession(): Promise<Message[]>;
   searchSessions(query: string, limit?: number): Promise<SearchHit[]>;
   // ADR-0009 D4: list and retrieve sessions for MCP tools
-  listSessions(): Promise<SessionMeta[]>;
+  listSessions(limit?: number): Promise<SessionMeta[]>;
   getSession(sessionId: string, limit: number): Promise<GetSessionResult>;
 }
 

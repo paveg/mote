@@ -197,6 +197,30 @@ test("listSessions returns [] when no sessions exist", async () => {
   expect(await state.listSessions()).toEqual([]);
 });
 
+test("listSessions returns at most `limit` rows ordered by created_at DESC", async () => {
+  const base = Date.now();
+  for (let i = 0; i < 150; i++) {
+    await state.appendMessages(`s_${i}`, [
+      { role: "user", content: [{ type: "text", text: `msg ${i}` }], createdAt: base + i },
+    ]);
+  }
+  const meta = await state.listSessions(50);
+  expect(meta).toHaveLength(50);
+  // First row should be the newest session (s_149)
+  expect(meta[0]?.id).toBe("s_149");
+});
+
+test("listSessions defaults to 100 rows when limit is omitted", async () => {
+  const base = Date.now();
+  for (let i = 0; i < 150; i++) {
+    await state.appendMessages(`s_lim_${i}`, [
+      { role: "user", content: [{ type: "text", text: `msg ${i}` }], createdAt: base + i },
+    ]);
+  }
+  const meta = await state.listSessions();
+  expect(meta).toHaveLength(100);
+});
+
 // --- getSession ----------------------------------------------------------
 
 test("getSession returns messages chronologically with truncated:false when count <= limit", async () => {
