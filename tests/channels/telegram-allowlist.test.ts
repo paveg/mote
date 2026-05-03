@@ -38,7 +38,7 @@ describe("loadAllowlist", () => {
     const dir = mkdtempSync(join(tmpdir(), "mote-allowlist-"));
     const file = join(dir, "telegram-allowlist.json");
     await Bun.write(file, "{ this is not valid }");
-    expect(loadAllowlist(file)).rejects.toThrow(/malformed/i);
+    await expect(loadAllowlist(file)).rejects.toThrow(/malformed/i);
   });
 
   it("remove() is idempotent for unknown userId", async () => {
@@ -62,6 +62,20 @@ describe("loadAllowlist", () => {
     const dir = mkdtempSync(join(tmpdir(), "mote-allowlist-"));
     const file = join(dir, "telegram-allowlist.json");
     await Bun.write(file, JSON.stringify({ version: 99, approved: [] }));
-    expect(loadAllowlist(file)).rejects.toThrow(/malformed/i);
+    await expect(loadAllowlist(file)).rejects.toThrow(/malformed/i);
+  });
+
+  it("remove() drops a present entry and persists on reload", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mote-allowlist-"));
+    const file = join(dir, "telegram-allowlist.json");
+    const a = await loadAllowlist(file);
+    await a.add({ userId: 7, approvedAt: 100 });
+    expect(a.has(7)).toBe(true);
+    await a.remove(7);
+    expect(a.has(7)).toBe(false);
+    expect(a.list()).toEqual([]);
+    const b = await loadAllowlist(file);
+    expect(b.has(7)).toBe(false);
+    expect(b.list()).toEqual([]);
   });
 });

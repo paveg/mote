@@ -32,7 +32,11 @@ export async function loadAllowlist(filePath: string): Promise<Allowlist> {
     }
     const result = v.safeParse(FileSchema, parsed);
     if (!result.success) {
-      throw new Error(`malformed allowlist file at ${filePath}: schema validation failed`);
+      const detail = result.issues[0];
+      const path = detail?.path?.map((p) => String((p as { key: unknown }).key)).join(".") ?? "";
+      const msg = detail?.message ?? "schema validation failed";
+      const where = path ? ` at "${path}"` : "";
+      throw new Error(`malformed allowlist file at ${filePath}: ${msg}${where}`);
     }
     entries = [...result.output.approved];
   } catch (err) {
