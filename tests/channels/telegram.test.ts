@@ -220,6 +220,10 @@ describe("validateToken", () => {
     expect(() => validateToken(`1234567890:${"a".repeat(36)}`)).toThrow(/format/i);
   });
 
+  it("rejects a token with a trailing newline (env-file gotcha)", () => {
+    expect(() => validateToken(`1234567890:${"a".repeat(35)}\n`)).toThrow(/format/i);
+  });
+
   it("rejects a token whose suffix uses disallowed characters", () => {
     expect(() => validateToken(`1234567890:${"!".repeat(35)}`)).toThrow(/format/i);
   });
