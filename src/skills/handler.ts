@@ -12,14 +12,24 @@ export interface SkillToolOpts {
   readonly maxTokens?: number;
 }
 
+// Wraps untrusted sub-LLM output in a structural fence (ADR-0014 D3).
+// The skill name is taken from the trusted LoadedSkill.name; the body is
+// the untrusted sub-call output. The fence is a defense-in-depth signal —
+// it makes the parent LLM less likely to confuse sub-call output for a
+// trusted tool report. No escaping inside the body is required per ADR-0014.
+function formatSkillOutput(skillName: string, texts: string[]): string {
+  const body = texts.join("") || "(skill produced no text output)";
+  return `<skill-output skill="${skillName}">\n${body}\n</skill-output>`;
+}
+
 // Builds a ToolDefinition from a parsed SKILL.md. The handler runs a
 // single, isolated LLM call:
 //   - skill.body becomes the `system` prompt
 //   - the LLM-supplied args become a JSON user message
 //   - tools=[] so the skill cannot recurse into the registry (M1
 //     keeps skills as single-call actions)
-// The assistant's text-block content is concatenated and returned as
-// the tool result.
+// The assistant's text-block content is concatenated, fenced, and returned
+// as the tool result.
 export function createSkillToolDefinition(
   skill: LoadedSkill,
   opts: SkillToolOpts,
@@ -33,6 +43,10 @@ export function createSkillToolDefinition(
     description: skill.description,
     schema: SkillArgs,
     handler: async (args, ctx) => {
+      // Pre-check per ADR-0015 D2: budget exhausted → error string, do not call provider.
+      if (ctx.opts.budget.remaining <= 0) {
+        return "[error] iteration budget exhausted; skill not dispatched";
+      }
       const argsText =
         Object.keys(args).length > 0
           ? `Arguments:\n${JSON.stringify(args, null, 2)}`
@@ -49,14 +63,14 @@ export function createSkillToolDefinition(
         ],
         tools: [],
       });
+      // ADR-0015 D1: deduct sub-call usage from the outer iteration budget.
+      ctx.opts.budget.deduct(res.usage);
       const texts: string[] = [];
       for (const block of res.assistant.content) {
         if (block.type === "text") texts.push(block.text);
       }
-      // Budget deduction is intentionally NOT done here — the sub-call
-      // is invisible to the outer iteration budget in M1. M2 can revisit
-      // when usage tracking matures.
-      return texts.join("") || "(skill produced no text output)";
+      // ADR-0014 D3: fence untrusted sub-LLM output before returning as tool_result.
+      return formatSkillOutput(skill.name, texts);
     },
   };
 }
