@@ -9,16 +9,16 @@ describe("createPairingStore", () => {
     expect(p.userId).toBe(12345);
   });
 
-  it("redeem() returns userId on first call, null on second (single-use)", () => {
+  it("redeem() returns ok on first call, not_found on second (single-use)", () => {
     const store = createPairingStore();
     const p = store.generate(42);
-    expect(store.redeem(p.code)).toEqual({ userId: 42 });
-    expect(store.redeem(p.code)).toBeNull();
+    expect(store.redeem(p.code)).toEqual({ ok: true, userId: 42 });
+    expect(store.redeem(p.code)).toEqual({ ok: false, reason: "not_found" });
   });
 
-  it("redeem() returns null for unknown code", () => {
+  it("redeem() returns not_found for an unknown code", () => {
     const store = createPairingStore();
-    expect(store.redeem("0".repeat(32))).toBeNull();
+    expect(store.redeem("0".repeat(32))).toEqual({ ok: false, reason: "not_found" });
   });
 
   it("redeem() returns the stored userId just before expiry", () => {
@@ -26,15 +26,15 @@ describe("createPairingStore", () => {
     const store = createPairingStore({ ttlMs: 1000, clock: () => now });
     const p = store.generate(7);
     now = 999;
-    expect(store.redeem(p.code)).toEqual({ userId: 7 });
+    expect(store.redeem(p.code)).toEqual({ ok: true, userId: 7 });
   });
 
-  it("redeem() returns null at and after the expiry instant", () => {
+  it("redeem() returns expired at and after the expiry instant", () => {
     let now = 0;
     const store = createPairingStore({ ttlMs: 1000, clock: () => now });
     const p = store.generate(8);
     now = 1000;
-    expect(store.redeem(p.code)).toBeNull();
+    expect(store.redeem(p.code)).toEqual({ ok: false, reason: "expired" });
   });
 
   it("sweep() removes expired pending codes and returns the count", () => {
@@ -53,7 +53,7 @@ describe("createPairingStore", () => {
     const fresh = store.generate(11);
     now = 500;
     expect(store.sweep()).toBe(0);
-    expect(store.redeem(fresh.code)).toEqual({ userId: 11 });
+    expect(store.redeem(fresh.code)).toEqual({ ok: true, userId: 11 });
   });
 
   it("generate() yields distinct codes across calls", () => {

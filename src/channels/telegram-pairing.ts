@@ -6,9 +6,13 @@ export interface PendingPairing {
   readonly expiresAt: number;
 }
 
+export type RedeemResult =
+  | { ok: true; userId: number }
+  | { ok: false; reason: "not_found" | "expired" };
+
 export interface PairingStore {
   generate(userId: number): PendingPairing;
-  redeem(code: string): { userId: number } | null;
+  redeem(code: string): RedeemResult;
   sweep(now?: number): number;
 }
 
@@ -33,10 +37,10 @@ export function createPairingStore(
     },
     redeem(code) {
       const entry = pending.get(code);
-      if (!entry) return null;
+      if (!entry) return { ok: false, reason: "not_found" };
       pending.delete(code);
-      if (clock() >= entry.expiresAt) return null;
-      return { userId: entry.userId };
+      if (clock() >= entry.expiresAt) return { ok: false, reason: "expired" };
+      return { ok: true, userId: entry.userId };
     },
     sweep(now) {
       const t = now ?? clock();
