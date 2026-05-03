@@ -207,7 +207,7 @@ async function defaultAgentReply(env: InboundEnvelope, deps: DispatchDeps): Prom
     if (process.env["MOTE_DEBUG"] === "1") {
       console.error("[telegram dispatch] runLoop error:", err);
     }
-    return `Internal error: ${(err as Error).message.replace(deps.token, "<redacted>")}`;
+    return `Internal error: ${(err as Error).message.split(deps.token).join("<redacted>")}`;
   }
 }
 
@@ -276,14 +276,15 @@ export async function dispatch(env: InboundEnvelope, deps: DispatchDeps): Promis
     return;
   }
 
-  // Approved message — log + reply
-  await deps.audit.log({ type: "approved", from: fromId, bytes: env.body.length });
-
   // Unsupported content reply
   if (env.body.startsWith("[unsupported:")) {
+    await deps.audit.log({ type: "rejected", from: fromId, reason: "unsupported content" });
     await sendMessage(deps.token, fromId, "Sorry, text only.", fetchImpl);
     return;
   }
+
+  // Approved message — log + reply
+  await deps.audit.log({ type: "approved", from: fromId, bytes: env.body.length });
 
   // Agent dispatch — RestrictedRegistry per ADR-0012 D5
   const agentReply = deps.agentReply ?? defaultAgentReply;
@@ -353,7 +354,7 @@ export async function createTelegramGateway(
           ...(opts.agentReply ? { agentReply: opts.agentReply } : {}),
         });
       } catch (err) {
-        const msg = (err as Error).message.replace(token, "<redacted>");
+        const msg = (err as Error).message.split(token).join("<redacted>");
         console.error(`[telegram] dispatch failed: ${msg}`);
       }
     }

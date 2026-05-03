@@ -562,6 +562,26 @@ describe("dispatch", () => {
       expect(s.allowlist.has(7)).toBe(false);
       expect(s.calls).toEqual([{ chatId: s.masterId, text: "Revoked 7." }]);
     });
+
+    it("/revoke <userId> followed by a DM from that user re-enters the pairing flow", async () => {
+      const s = await makeDispatchScaffold();
+      await s.allowlist.add({ userId: 7, approvedAt: 1 });
+      // Master revokes
+      await dispatch(env({ from: String(s.masterId), body: "/revoke 7" }), s.deps);
+      expect(s.allowlist.has(7)).toBe(false);
+      // Reset call capture for the follow-up
+      s.calls.length = 0;
+      s.recordedAgentCalls.length = 0;
+      // Revoked user DMs again
+      await dispatch(env({ from: "7", body: "let me back in" }), s.deps);
+      // Must NOT reach the agent
+      expect(s.recordedAgentCalls).toHaveLength(0);
+      // Must send a pairing code to user 7 + a notice to master
+      expect(s.calls).toHaveLength(2);
+      expect(s.calls[0]?.chatId).toBe(7);
+      expect(s.calls[0]?.text).toMatch(/Pairing code: [0-9a-f]{32}/);
+      expect(s.calls[1]?.chatId).toBe(s.masterId);
+    });
   });
 
   describe("approved message dispatch", () => {
@@ -725,5 +745,84 @@ describe("createTelegramGateway", () => {
       agentReply: async (env) => `echo: ${env.body}`,
     });
     expect(sendMessageCalls).toEqual([{ chatId: 1000, text: "echo: hi" }]);
+  });
+
+  it("gateway outer catch: error containing the token MULTIPLE times is fully redacted", async () => {
+    const TOKEN = `1234567890:${"a".repeat(35)}`;
+    const dir = mkdtempSync(join(tmpdir(), "mote-tg-"));
+    const allowlist = await loadAllowlist(join(dir, "allow.json"));
+    const audit = await createAuditLogger(join(dir, "audit.log"), { token: TOKEN });
+    const ctrl = new AbortController();
+
+    // Capture console.error to assert token redaction.
+    const errorLines: string[] = [];
+    const origConsoleError = console.error;
+    console.error = (...args: unknown[]) => {
+      errorLines.push(args.map((a) => (a instanceof Error ? a.message : String(a))).join(" "));
+    };
+
+    let pollCount = 0;
+    const fetchImpl: FetchFn = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/getUpdates")) {
+        pollCount += 1;
+        if (pollCount === 1) {
+          ctrl.abort();
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              result: [
+                {
+                  update_id: 1,
+                  message: {
+                    message_id: 1,
+                    from: { id: 1000, is_bot: false },
+                    chat: { id: 1000, type: "private" },
+                    date: 1,
+                    text: "hi",
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, result: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 });
+    };
+    const ctx = {
+      agentId: "x",
+      sessionId: "x",
+      workspaceDir: dir,
+      registry: undefined as unknown as never,
+      provider: undefined as unknown as never,
+      state: undefined as unknown as never,
+      opts: undefined as unknown as never,
+      signal: ctrl.signal,
+      systemPrompt: () => ({ blocks: [] }) as never,
+    };
+    try {
+      await createTelegramGateway(ctx, {
+        token: TOKEN,
+        masterId: 1000,
+        skills: [],
+        allowlist,
+        pairing: createPairingStore(),
+        audit,
+        model: "claude-haiku-4-5-20251001",
+        abort: ctrl.signal,
+        fetchImpl,
+        agentReply: async () => {
+          throw new Error(`failure ${TOKEN} retry ${TOKEN} again`);
+        },
+      });
+    } finally {
+      console.error = origConsoleError;
+    }
+    const allLogs = errorLines.join("\n");
+    expect(allLogs).not.toContain(TOKEN);
+    // Both occurrences must be replaced — at least 2 markers should appear.
+    expect((allLogs.match(/<redacted>/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 });
