@@ -35,6 +35,7 @@ describe("createPairingStore", () => {
     const p = store.generate(8);
     now = 1000;
     expect(store.redeem(p.code)).toEqual({ ok: false, reason: "expired" });
+    expect(store.redeem(p.code)).toEqual({ ok: false, reason: "not_found" });
   });
 
   it("sweep() removes expired pending codes and returns the count", () => {
