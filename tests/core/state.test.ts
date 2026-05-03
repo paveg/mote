@@ -141,6 +141,17 @@ test("searchSessions matches only text content, not tool_use input", async () =>
   expect(await state.searchSessions("tool-input-marker")).toEqual([]);
 });
 
+test("searchSessions does not crash on FTS5 special tokens or operators", async () => {
+  await state.appendMessages("s", [makeMessage("hello world")]);
+
+  // Each of these must NOT throw — they should return [] or a hit, but never propagate a SQLite error
+  const tokens = ["OR", "NOT", "AND", "NEAR", "*", "foo*bar", 'with"quote', "back\\slash"];
+  for (const t of tokens) {
+    const hits = await state.searchSessions(t);
+    expect(Array.isArray(hits)).toBe(true);
+  }
+});
+
 // --- :memory: mode -------------------------------------------------------
 
 test("SqliteState supports :memory: mode for tests with no fs side effects", async () => {

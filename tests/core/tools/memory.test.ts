@@ -143,6 +143,22 @@ test("memory_edit schema rejects empty `find`", async () => {
   expect(result).toMatch(/^\[error\] invalid args for memory_edit:/);
 });
 
+test("memory_edit can match a `find` string that spans paragraph boundaries", async () => {
+  await memoryAppendTool.handler({ text: "first paragraph end" }, ctx);
+  await memoryAppendTool.handler({ text: "second paragraph start" }, ctx);
+  // The two paragraphs are joined by `\n\n` — the find spans that boundary
+  const result = await memoryEditTool.handler(
+    {
+      find: "first paragraph end\n\nsecond paragraph start",
+      replace: "merged paragraph",
+    },
+    ctx,
+  );
+  expect(result).toMatch(/^Replaced/);
+  const content = await readFile(join(workspaceDir, "MEMORY.md"), "utf8");
+  expect(content).toBe("merged paragraph\n");
+});
+
 test("memory_edit schema accepts empty `replace` (deletion)", async () => {
   await memoryAppendTool.handler({ text: "delete-me kept-text" }, ctx);
   const result = await memoryEditTool.handler(

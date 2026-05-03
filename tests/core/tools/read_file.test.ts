@@ -134,6 +134,33 @@ test("handler returns error string for a non-existent path", async () => {
   expect(result).toMatch(/^\[error\] read_file: cannot resolve path:/);
 });
 
+// --- handler-level rejection (directory) ----------------------------------
+
+test("handler rejects when path resolves to a directory", async () => {
+  // sessions/ already exists inside the workspace from ensureWorkspace
+  const result = await readFileTool.handler({ path: "sessions" }, ctx);
+  expect(result).toMatch(/^\[error\] read_file:/);
+  // The error must be loud — silently returning "" would be a data-loss bug
+  expect(result).not.toBe("");
+});
+
+// --- handler-level rejection (symlink chain) ------------------------------
+
+test("handler rejects a chain of two symlinks where the final target is outside the workspace", async () => {
+  // symlinkOutside → /tmp/.../secret (outside workspace)
+  // symlinkChain → symlinkOutside (inside workspace)
+  const outside = join(fakeHome, "secret.txt");
+  await writeFile(outside, "leaked");
+
+  const link1 = join(workspaceDir, "link1");
+  const link2 = join(workspaceDir, "link2");
+  await symlink(outside, link1);
+  await symlink(link1, link2);
+
+  const result = await readFileTool.handler({ path: "link2" }, ctx);
+  expect(result).toBe("[error] read_file: path escapes workspace");
+});
+
 // --- integration through the registry ------------------------------------
 
 test("registry-dispatch path: schema validation + handler succeed for a valid file", async () => {
