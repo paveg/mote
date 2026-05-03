@@ -203,7 +203,7 @@ Completed 2026-05-02 across 2 commits (foundations + server). Project total: **~
 
 - [ ] **Before M3 (MCP server)**: write **ADR-0009: MCP server security model**. Cover transport (stdio default; TCP behind shared-secret token), capability gating for `invoke_skill` (full tool registry vs curated subset), and rejection of unauthenticated TCP callers.
 - [ ] **Before M4 (A2A endpoint)**: write **ADR-0010: A2A endpoint security**. Cover `Access-Control-Allow-Origin` allowlist (no `*`), rate limiting (Hono `hono/rate-limiter`), request body size cap.
-- [ ] **Before M5 (Telegram pairing)**: write **ADR-0011: Telegram channel security**. Cover pairing-code entropy (≥128 bits via `crypto.randomBytes(16).toString("hex")`, single-use), allowlist storage (file with `0o600` or env-var-only, NOT inside writable `state.db`), and inbound `from.id` allowlist enforcement before any tool dispatch.
+- [ ] **Before M5 (Telegram pairing)**: write **ADR-0012: Telegram channel security** (renumbered from 0011 — that slot was taken by A2A endpoint hardening). Cover pairing-code entropy (≥128 bits via `crypto.randomBytes(16).toString("hex")`, single-use), allowlist storage (file with `0o600` or env-var-only, NOT inside writable `state.db`), and inbound `from.id` allowlist enforcement before any tool dispatch.
 - [ ] **Before any `bash` / `write_file` / network-fetch tool**: extend **ADR-0008** scope or write a follow-up ADR covering shell metachar handling, executable allowlist, and timeouts.
 
 ## Completed milestones
