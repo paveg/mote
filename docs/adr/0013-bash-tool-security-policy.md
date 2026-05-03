@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (2026-05-03; locked-in policy that any future `bash` tool implementation must satisfy)
+Accepted (2026-05-03) — locked-in policy that any future `bash` tool implementation must satisfy
 
 ## Context
 
