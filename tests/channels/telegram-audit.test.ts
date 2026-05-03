@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { mkdtempSync } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAuditLogger } from "@/channels/telegram-audit";
@@ -84,5 +84,34 @@ describe("createAuditLogger", () => {
     const body = await readFile(file, "utf8");
     expect(body.startsWith("preexisting line\n")).toBe(true);
     expect(body.split("\n").filter(Boolean)).toHaveLength(2);
+  });
+
+  it("throws when token is empty string", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mote-audit-"));
+    const file = join(dir, "telegram-audit.log");
+    await expect(createAuditLogger(file, { token: "" })).rejects.toThrow(
+      /token must not be empty/,
+    );
+  });
+
+  it("re-creates the file with mode 0o600 if deleted between init and log()", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mote-audit-"));
+    const file = join(dir, "telegram-audit.log");
+    const log = await createAuditLogger(file, { token: CANARY_TOKEN });
+    await rm(file);
+    await log.log({ type: "approved", from: 1, bytes: 0 });
+    const s = await stat(file);
+    expect(s.mode & 0o777).toBe(0o600);
+  });
+
+  it("sanitizes tab and newline characters in user-supplied field values", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mote-audit-"));
+    const file = join(dir, "telegram-audit.log");
+    const log = await createAuditLogger(file, { token: CANARY_TOKEN });
+    await log.log({ type: "rejected", from: 1, reason: "evil\tinject\nlol" });
+    const body = await readFile(file, "utf8");
+    expect(body.trim().split("\n")).toHaveLength(1);
+    expect(body).not.toContain("evil\tinject");
+    expect(body).toContain("evil inject lol");
   });
 });

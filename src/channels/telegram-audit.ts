@@ -14,6 +14,10 @@ export async function createAuditLogger(
   filePath: string,
   opts: { token: string },
 ): Promise<AuditLogger> {
+  if (!opts.token) {
+    throw new Error("createAuditLogger: opts.token must not be empty");
+  }
+
   // Ensure file exists with 0o600. open() with "a" creates if missing.
   const handle = await open(filePath, "a", 0o600);
   await handle.close();
@@ -30,7 +34,7 @@ export async function createAuditLogger(
           line = `${ts}\tfrom=${event.from}\tresult=approved\tbytes=${event.bytes}`;
           break;
         case "tool-dispatched":
-          line = `${ts}\tfrom=${event.from}\tresult=tool-dispatched\ttool=${event.tool}`;
+          line = `${ts}\tfrom=${event.from}\tresult=tool-dispatched\ttool=${sanitizeField(event.tool)}`;
           break;
         case "pending-pairing": {
           const prefix = new Bun.CryptoHasher("sha256")
@@ -41,15 +45,20 @@ export async function createAuditLogger(
           break;
         }
         case "rejected":
-          line = `${ts}\tfrom=${event.from}\tresult=rejected\treason=${event.reason}`;
+          line = `${ts}\tfrom=${event.from}\tresult=rejected\treason=${sanitizeField(event.reason)}`;
           break;
       }
       const safe = line.replace(tokenRedactor, "<redacted>");
-      await appendFile(filePath, `${safe}\n`);
+      await appendFile(filePath, `${safe}\n`, { mode: 0o600 });
+      await chmod(filePath, 0o600);
     },
   };
 }
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function sanitizeField(s: string): string {
+  return s.replace(/[\t\n\r]/g, " ");
 }
