@@ -16,8 +16,41 @@
 
 set -euo pipefail
 
+# --- M5: Telegram gateway fail-closed startup ---
+#
+# We don't try a real Telegram bot here (would require BotFather +
+# a master phone). Instead, prove the gateway entry refuses to start
+# when env is missing / malformed — the security invariant ADR-0012
+# D2 promises before any HTTP request is issued.
+
+# Sub-case A: missing MOTE_TELEGRAM_TOKEN -> exit non-zero
+M5_OUT_A="$(MOTE_TELEGRAM_TOKEN= MOTE_TELEGRAM_MASTER_ID= bun run src/entry/gateway.ts 2>&1 || true)"
+if ! grep -q "MOTE_TELEGRAM_TOKEN" <<< "$M5_OUT_A"; then
+  echo "FAIL: M5 — gateway should mention MOTE_TELEGRAM_TOKEN in error when token missing"
+  echo "$M5_OUT_A"
+  exit 1
+fi
+
+# Sub-case B: malformed MOTE_TELEGRAM_TOKEN -> format error
+M5_OUT_B="$(MOTE_TELEGRAM_TOKEN="not-a-token" MOTE_TELEGRAM_MASTER_ID="12345" bun run src/entry/gateway.ts 2>&1 || true)"
+if ! grep -qi "format" <<< "$M5_OUT_B"; then
+  echo "FAIL: M5 — malformed token should yield a 'format' error"
+  echo "$M5_OUT_B"
+  exit 1
+fi
+
+# Sub-case C: missing master id with valid token -> error mentions master
+M5_OUT_C="$(MOTE_TELEGRAM_TOKEN="1234567890:$(printf 'a%.0s' $(seq 1 35))" MOTE_TELEGRAM_MASTER_ID= bun run src/entry/gateway.ts 2>&1 || true)"
+if ! grep -q "MOTE_TELEGRAM_MASTER_ID" <<< "$M5_OUT_C"; then
+  echo "FAIL: M5 — gateway should mention MOTE_TELEGRAM_MASTER_ID when missing"
+  echo "$M5_OUT_C"
+  exit 1
+fi
+
+echo "PASS: M5 gateway fail-closed startup (token missing/malformed + master id missing rejected)"
+
 if [ -z "${LLM_API_KEY:-}" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-  echo "SKIP: neither LLM_API_KEY nor ANTHROPIC_API_KEY is set"
+  echo "SKIP: neither LLM_API_KEY nor ANTHROPIC_API_KEY is set (M0–M4 skipped)"
   exit 0
 fi
 
