@@ -91,3 +91,12 @@ test("loadSkills ignores files in skills/ that are not named SKILL.md", async ()
   expect(skills).toHaveLength(1);
   expect(skills[0]?.name).toBe("withaux");
 });
+
+// --- boundary: malformed skill positioned between two valid skills --------
+
+test("loadSkills throws on a malformed skill positioned between two valid skills", async () => {
+  await writeSkill("alpha", `---\nname: alpha\ndescription: a\n---\nbody`);
+  await writeSkill("broken", `---\nname: broken\nthis-line-has-no-colon\n---\nbody`);
+  await writeSkill("gamma", `---\nname: gamma\ndescription: g\n---\nbody`);
+  await expect(loadSkills(workspaceDir)).rejects.toThrow(/skill at .*broken.*SKILL\.md/);
+});

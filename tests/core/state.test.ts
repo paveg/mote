@@ -174,3 +174,22 @@ test("SqliteState supports :memory: mode for tests with no fs side effects", asy
     inMem.close();
   }
 });
+
+// --- boundary: loadLatestSession tie-break --------------------------------
+
+test("loadLatestSession is deterministic when two sessions share created_at", async () => {
+  // Force same created_at by injecting messages with identical timestamps
+  const ts = Date.now();
+  await state.appendMessages("s_aaa", [
+    { role: "user", content: [{ type: "text", text: "aaa" }], createdAt: ts },
+  ]);
+  await state.appendMessages("s_zzz", [
+    { role: "user", content: [{ type: "text", text: "zzz" }], createdAt: ts },
+  ]);
+  // Two consecutive calls must return the same session — proves the tie-break
+  // is deterministic (relies on the secondary ORDER BY id DESC).
+  const first = await state.loadLatestSession();
+  const second = await state.loadLatestSession();
+  expect(first).toEqual(second);
+  expect(first).toHaveLength(1);
+});

@@ -104,3 +104,66 @@ test("schema rejects a limit outside the [1,50] range", async () => {
   const result = await reg.dispatch(call, ctx);
   expect(result).toMatch(/^\[error\] invalid args for search_sessions:/);
 });
+
+// --- boundary: limit min/max edges ---------------------------------------
+
+test("schema accepts limit:1 (minimum)", async () => {
+  await state.appendMessages("s", [
+    {
+      role: "user",
+      content: [{ type: "text", text: "rare-token" }],
+      createdAt: Date.now(),
+    },
+    {
+      role: "user",
+      content: [{ type: "text", text: "rare-token again" }],
+      createdAt: Date.now() + 1,
+    },
+  ]);
+  const reg = new ToolRegistry();
+  reg.register(searchSessionsTool);
+  const result = await reg.dispatch(
+    { id: "1", name: "search_sessions", args: { query: "rare-token", limit: 1 } },
+    ctx,
+  );
+  expect(result).toContain("Found 1 match(es)");
+});
+
+test("schema rejects limit:0 and limit:-1", async () => {
+  const reg = new ToolRegistry();
+  reg.register(searchSessionsTool);
+  for (const bad of [0, -1]) {
+    const result = await reg.dispatch(
+      { id: "1", name: "search_sessions", args: { query: "x", limit: bad } },
+      ctx,
+    );
+    expect(result).toMatch(/^\[error\] invalid args for search_sessions:/);
+  }
+});
+
+test("schema accepts limit:50 (maximum)", async () => {
+  // Just confirm schema acceptance — no need to insert 50 messages
+  const reg = new ToolRegistry();
+  reg.register(searchSessionsTool);
+  const result = await reg.dispatch(
+    { id: "1", name: "search_sessions", args: { query: "anything", limit: 50 } },
+    ctx,
+  );
+  // Either matches or "no matches" — the key is no validation error
+  expect(result).not.toMatch(/^\[error\] invalid args/);
+});
+
+test("searchSessions returns exactly `limit` rows when corpus has more matches", async () => {
+  for (let i = 0; i < 5; i++) {
+    await state.appendMessages(`s_${i}`, [
+      {
+        role: "user",
+        content: [{ type: "text", text: `unique-N${i}` }],
+        createdAt: Date.now() + i,
+      },
+    ]);
+  }
+  // Use the stand-alone searchSessions on state, not via tool, for direct count check
+  const hits = await state.searchSessions("unique-N", 3);
+  expect(hits).toHaveLength(3);
+});

@@ -451,3 +451,31 @@ test("complete: omits tools field when empty", async () => {
   const parsed = JSON.parse(capturedBody) as { tools?: unknown };
   expect("tools" in parsed).toBe(false);
 });
+
+// --- boundary: content:null with no tool_calls ----------------------------
+
+test("complete: response with content:null and no tool_calls produces empty content array", async () => {
+  const fakeFetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [
+          { message: { role: "assistant", content: null }, finish_reason: "stop" },
+        ],
+        usage: { prompt_tokens: 0, completion_tokens: 0 },
+      }),
+      { status: 200 },
+    );
+  const provider = createOpenAICompatProvider({
+    apiKey: "sk-test",
+    fetch: fakeFetch as unknown as typeof globalThis.fetch,
+  });
+  const result = await provider.complete({
+    model: "gpt-test",
+    messages: [],
+    tools: [],
+    system: "",
+  });
+  expect(result.assistant.content).toEqual([]);
+  expect(result.toolCalls).toEqual([]);
+  expect(result.usage).toEqual({ input: 0, output: 0 });
+});

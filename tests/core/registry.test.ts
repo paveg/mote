@@ -88,3 +88,22 @@ test("dispatch turns handler exceptions into error strings", async () => {
   const result = await reg.dispatch(call, stubCtx);
   expect(result).toBe("[error] boom");
 });
+
+// --- boundary: empty registry and invalid args shapes --------------------
+
+test("schemas() returns [] for an empty registry", () => {
+  const reg = new ToolRegistry();
+  expect(reg.schemas()).toEqual([]);
+});
+
+test("dispatch rejects args:null and args:[] via valibot", async () => {
+  const reg = new ToolRegistry();
+  reg.register(echoTool);
+  for (const badArgs of [null, [] as const]) {
+    const result = await reg.dispatch(
+      { id: "1", name: "echo", args: badArgs as unknown as Record<string, unknown> },
+      stubCtx,
+    );
+    expect(result).toMatch(/^\[error\] invalid args for echo:/);
+  }
+});

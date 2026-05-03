@@ -80,3 +80,25 @@ Line 4`;
   const parsed = parseFrontmatter(content);
   expect(parsed.body).toBe("Line 1\nLine 2\n\nLine 4");
 });
+
+// --- boundary: empty body, leading-whitespace key, escaped quote ----------
+
+test("parseFrontmatter: empty body after closing `---` returns body=\"\"", () => {
+  const content = `---\nname: x\ndescription: y\n---\n`;
+  const parsed = parseFrontmatter(content);
+  expect(parsed.body).toBe("");
+});
+
+test("parseFrontmatter: key with leading whitespace is normalized via trim", () => {
+  const content = `---\n  name: hello\ndescription: ok\n---\nbody`;
+  const parsed = parseFrontmatter(content);
+  expect(parsed.fields["name"]).toBe("hello");
+});
+
+test("parseFrontmatter: embedded escape sequences inside quoted values are kept literal (no escape handling)", () => {
+  const content = `---\nname: x\ndescription: "foo \\"bar\\" baz"\n---\nbody`;
+  const parsed = parseFrontmatter(content);
+  // The unquote() helper strips ONE outer pair of quotes; backslash-escaped
+  // inner quotes are retained verbatim. This pins "no escape handling".
+  expect(parsed.fields["description"]).toBe('foo \\"bar\\" baz');
+});

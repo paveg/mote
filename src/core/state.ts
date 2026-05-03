@@ -150,7 +150,7 @@ export class SqliteState implements SessionState {
     // recently). Fall back to empty when there are no sessions.
     const sessionRow = this.db
       .query<{ id: string }, []>(
-        "SELECT id FROM sessions ORDER BY created_at DESC LIMIT 1",
+        "SELECT id FROM sessions ORDER BY created_at DESC, id DESC LIMIT 1",
       )
       .get();
     if (!sessionRow) return [];

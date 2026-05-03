@@ -326,3 +326,31 @@ test("complete: sanitizes API errors — never echoes the API key", async () => 
     delete process.env["LLM_API_KEY"];
   }
 });
+
+// --- boundary: thinking without signature, empty content array ------------
+
+test("fromAnthropicBlock: thinking block without signature", () => {
+  const out = fromAnthropicBlock({ type: "thinking", thinking: "hmm" });
+  expect(out).toEqual({ type: "thinking", thinking: "hmm" });
+  // signature is optional — must NOT appear in the result when absent
+  expect(out && "signature" in out).toBe(false);
+});
+
+test("complete: empty content array in response is handled cleanly", async () => {
+  const create = mock(async () => ({
+    content: [],
+    usage: { input_tokens: 0, output_tokens: 0 },
+  }));
+  const stub: AnthropicLike = { messages: { create } };
+  const provider = createAnthropicProvider({ client: stub });
+
+  const result = await provider.complete({
+    model: "claude-sonnet-4-6",
+    messages: [],
+    tools: [],
+    system: "",
+  });
+  expect(result.assistant.content).toEqual([]);
+  expect(result.toolCalls).toEqual([]);
+  expect(result.usage).toEqual({ input: 0, output: 0 });
+});

@@ -395,3 +395,88 @@ test("runLoop does NOT inject a nudge when no MemoryNudge is configured", async 
   const result = await runLoop([textMessage("user", "hi")], ctx);
   expect(result.messages.filter(m => m.role === "system")).toHaveLength(0);
 });
+
+// --- boundary: maxIterations 0/1, initial=[], budget edge cases -----------
+
+test("runLoop with maxIterations:0 returns immediately without calling the provider", async () => {
+  const provider = scriptedProvider([]); // empty — fail if accessed
+  const ctx = makeContext({ provider, maxIterations: 0 });
+  const result = await runLoop([textMessage("user", "hi")], ctx);
+  expect(result.iter).toBe(0);
+  expect(result.messages).toHaveLength(1); // only the initial user message
+  expect(provider.calls).toHaveLength(0);
+});
+
+test("runLoop with maxIterations:1 fires exactly once when the model keeps requesting tools", async () => {
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "x",
+    description: "x",
+    schema: v.object({}),
+    handler: async () => "ok",
+  });
+  const provider = scriptedProvider([
+    {
+      assistant: {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "tu_1", name: "x", input: {} }],
+        createdAt: 0,
+      },
+      toolCalls: [{ id: "tu_1", name: "x", args: {} }],
+      usage: { input: 1, output: 1 },
+    },
+  ]);
+  const ctx = makeContext({ provider, registry, maxIterations: 1 });
+  const result = await runLoop([textMessage("user", "go")], ctx);
+  expect(result.iter).toBe(1);
+  expect(provider.calls).toHaveLength(1);
+});
+
+test("runLoop accepts an empty initial message array", async () => {
+  const provider = scriptedProvider([
+    {
+      assistant: textMessage("assistant", "hi"),
+      toolCalls: [],
+      usage: { input: 1, output: 1 },
+    },
+  ]);
+  const ctx = makeContext({ provider });
+  const result = await runLoop([], ctx);
+  expect(result.iter).toBe(0);
+  expect(result.messages).toHaveLength(1);
+  expect(result.messages[0]?.role).toBe("assistant");
+});
+
+test("runLoop with budget.remaining=0 at entry never calls the provider", async () => {
+  const provider = scriptedProvider([]);
+  const budget = makeBudget(0);
+  const ctx = makeContext({ provider, budget });
+  const result = await runLoop([textMessage("user", "hi")], ctx);
+  expect(result.iter).toBe(0);
+  expect(provider.calls).toHaveLength(0);
+});
+
+test("runLoop stops once budget goes negative after a deduction", async () => {
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "x",
+    description: "x",
+    schema: v.object({}),
+    handler: async () => "ok",
+  });
+  const provider = scriptedProvider([
+    {
+      assistant: {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "tu_1", name: "x", input: {} }],
+        createdAt: 0,
+      },
+      toolCalls: [{ id: "tu_1", name: "x", args: {} }],
+      usage: { input: 60, output: 0 }, // takes remaining 50 below 0
+    },
+  ]);
+  const budget = makeBudget(50);
+  const ctx = makeContext({ provider, registry, budget });
+  await runLoop([textMessage("user", "go")], ctx);
+  expect(provider.calls).toHaveLength(1); // first call ran, but loop exits before second
+});

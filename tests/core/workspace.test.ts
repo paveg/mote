@@ -104,3 +104,17 @@ test("loadMemory returns file contents when MEMORY.md exists", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+// --- boundary: all-whitespace file collapse to empty string ---------------
+
+test("loadMemory returns empty string for an all-whitespace MEMORY.md (trim collapses it)", async () => {
+  const fs = await import("node:fs/promises");
+  const os = await import("node:os");
+  const dir = await fs.mkdtemp(join(os.tmpdir(), "mote-memory-ws-test-"));
+  try {
+    await writeFile(join(dir, "MEMORY.md"), "   \n   \n");
+    expect(await loadMemory(dir)).toBe("");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

@@ -169,3 +169,23 @@ test("memory_edit schema accepts empty `replace` (deletion)", async () => {
   const content = await readFile(join(workspaceDir, "MEMORY.md"), "utf8");
   expect(content).toBe("kept-text\n");
 });
+
+// --- boundary: literal content and whitespace-only input -----------------
+
+test("memory_append writes literal `---` content without parsing it", async () => {
+  await memoryAppendTool.handler({ text: "---\nfoo: bar\n---" }, ctx);
+  const content = await readFile(join(workspaceDir, "MEMORY.md"), "utf8");
+  expect(content).toContain("---\nfoo: bar\n---");
+});
+
+test("memory_append accepts a single newline (whitespace-only) and writes it as-is", async () => {
+  // The schema requires minLength(1) but does not require non-whitespace.
+  // The append succeeds; loadMemory returns "" (empty after trailing-whitespace
+  // trim) on subsequent reads. This pins the current contract — change it via
+  // a follow-up if we ever decide whitespace-only should be rejected.
+  const result = await memoryAppendTool.handler({ text: "\n" }, ctx);
+  expect(result).toMatch(/Appended/);
+  // Verify on disk
+  const content = await readFile(join(workspaceDir, "MEMORY.md"), "utf8");
+  expect(content.length).toBeGreaterThan(0);
+});
