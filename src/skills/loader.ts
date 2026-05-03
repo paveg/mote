@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
+import { join } from "node:path";
 import { Glob } from "bun";
 
 import { parseFrontmatter } from "@/skills/frontmatter";
@@ -18,10 +19,39 @@ import type { LoadedSkill } from "@/skills/types";
 // fine — a user may run mote with no skills installed yet.
 export async function loadSkills(workspaceDir: string): Promise<LoadedSkill[]> {
   const glob = new Glob("skills/*/SKILL.md");
-  const matches: string[] = [];
-  for await (const relPath of glob.scan({ cwd: workspaceDir, absolute: true })) {
-    matches.push(relPath);
+  const rawMatches: string[] = [];
+  for await (const absPath of glob.scan({ cwd: workspaceDir, absolute: true })) {
+    rawMatches.push(absPath);
   }
+
+  // ADR-0008 confinement: resolve each SKILL.md via realpath and verify the
+  // canonical path stays inside <workspaceDir>/skills/. This blocks
+  // symlinks that point outside the workspace (pentest finding M6).
+  // Both sides are canonicalized to handle macOS /var → /private/var.
+  let skillsRoot: string;
+  try {
+    skillsRoot = await realpath(join(workspaceDir, "skills"));
+  } catch {
+    // skills/ directory does not exist — nothing to load.
+    return [];
+  }
+
+  const matches: string[] = [];
+  for (const absPath of rawMatches) {
+    let resolved: string;
+    try {
+      resolved = await realpath(absPath);
+    } catch {
+      // Broken symlink or missing file — skip silently.
+      continue;
+    }
+    if (resolved !== skillsRoot && !resolved.startsWith(skillsRoot + "/")) {
+      console.warn(`[skills] skipping symlink-out-of-tree: ${absPath} → ${resolved}`);
+      continue;
+    }
+    matches.push(absPath);
+  }
+
   // Stable order so tests (and `list_skills` MCP tool in M3) see deterministic output.
   matches.sort();
 

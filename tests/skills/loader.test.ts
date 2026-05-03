@@ -1,4 +1,5 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -125,4 +126,41 @@ test("loadSkills throws on a malformed skill positioned between two valid skills
   await writeSkill("broken", `---\nname: broken\nthis-line-has-no-colon\n---\nbody`);
   await writeSkill("gamma", `---\nname: gamma\ndescription: g\n---\nbody`);
   await expect(loadSkills(workspaceDir)).rejects.toThrow(/skill at .*broken.*SKILL\.md/);
+});
+
+// --- confinement: symlink traversal (pentest finding M6) ------------------
+
+test("loadSkills skips a SKILL.md whose realpath escapes the workspace via symlink", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mote-skill-symlink-"));
+  const outsideDir = mkdtempSync(join(tmpdir(), "mote-outside-"));
+  writeFileSync(
+    join(outsideDir, "evil.md"),
+    "---\nname: evil\ndescription: out\nmcp: public\n---\nbody",
+  );
+  // Create the in-tree skill dir but symlink SKILL.md to an outside file
+  mkdirSync(join(dir, "skills", "evil"), { recursive: true });
+  symlinkSync(join(outsideDir, "evil.md"), join(dir, "skills", "evil", "SKILL.md"));
+  const skills = await loadSkills(dir);
+  expect(skills.find((s) => s.name === "evil")).toBeUndefined();
+});
+
+test("loadSkills loads a normal in-tree skill correctly (regression)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mote-skill-normal-"));
+  mkdirSync(join(dir, "skills", "hello"), { recursive: true });
+  writeFileSync(
+    join(dir, "skills", "hello", "SKILL.md"),
+    "---\nname: hello\ndescription: greet\nmcp: public\n---\nbody",
+  );
+  const skills = await loadSkills(dir);
+  const hello = skills.find((s) => s.name === "hello");
+  expect(hello).toBeDefined();
+});
+
+test("loadSkills tolerates a broken symlink without crashing", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mote-skill-broken-"));
+  mkdirSync(join(dir, "skills", "broken"), { recursive: true });
+  // SKILL.md is a symlink pointing to a path that does not exist
+  symlinkSync("/nonexistent/path/SKILL.md", join(dir, "skills", "broken", "SKILL.md"));
+  const skills = await loadSkills(dir);
+  expect(Array.isArray(skills)).toBe(true);
 });
