@@ -15,7 +15,8 @@ The primary source for design decisions lives in the sibling research repo:
 In-repo references:
 
 - [docs/adr/](./docs/adr/) — accepted design decisions
-- [tasks/todo.md](./tasks/todo.md) — current milestone
+- [docs/HISTORY.md](./docs/HISTORY.md) — completed milestones + hardening series narrative
+- [Issues](https://github.com/paveg/mote/issues) — current backlog (pentest follow-ups, dogfood findings)
 
 ## Quick start
 
