@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { normalizeUpdate } from "@/channels/telegram";
+import { buildPublicRegistry, validateToken } from "@/channels/telegram";
+import type { LoadedSkill } from "@/skills/types";
 
 const baseFrom = { id: 12345, is_bot: false } as const;
 const baseChat = (type: string) => ({ id: 12345, type }) as const;
@@ -189,5 +191,79 @@ describe("normalizeUpdate", () => {
       },
     });
     expect(result).toEqual({ channel: "telegram", from: "-42", timestamp: 1000, body: "x" });
+  });
+});
+
+describe("validateToken", () => {
+  it("accepts a well-shaped bot token", () => {
+    const token = `1234567890:${"a".repeat(35)}`;
+    expect(validateToken(token)).toBe(token);
+  });
+
+  it("rejects an empty string", () => {
+    expect(() => validateToken("")).toThrow(/format/i);
+  });
+
+  it("rejects a token without the colon separator", () => {
+    expect(() => validateToken("not-a-token")).toThrow(/format/i);
+  });
+
+  it("rejects a token whose suffix is too short", () => {
+    expect(() => validateToken("1234567890:short")).toThrow(/format/i);
+  });
+
+  it("rejects an obvious test placeholder", () => {
+    expect(() => validateToken("123456:test")).toThrow(/format/i);
+  });
+
+  it("rejects a token whose suffix is too long (>35 chars)", () => {
+    expect(() => validateToken(`1234567890:${"a".repeat(36)}`)).toThrow(/format/i);
+  });
+
+  it("rejects a token whose suffix uses disallowed characters", () => {
+    expect(() => validateToken(`1234567890:${"!".repeat(35)}`)).toThrow(/format/i);
+  });
+
+  it("rejects a token whose bot id is non-numeric", () => {
+    expect(() => validateToken(`abc:${"a".repeat(35)}`)).toThrow(/format/i);
+  });
+
+  it("accepts a token whose suffix uses underscores and dashes", () => {
+    const token = `42:${"a".repeat(33)}_-`;
+    expect(validateToken(token)).toBe(token);
+  });
+});
+
+describe("buildPublicRegistry", () => {
+  const makeSkill = (name: string, mcp: "public" | "private"): LoadedSkill => ({
+    name,
+    description: `desc for ${name}`,
+    body: "skill body",
+    path: `/tmp/skills/${name}/SKILL.md`,
+    mcp,
+  });
+
+  it("includes only mcp:public skills", () => {
+    const skills: LoadedSkill[] = [
+      makeSkill("alpha", "public"),
+      makeSkill("beta", "private"),
+      makeSkill("gamma", "public"),
+    ];
+    const registry = buildPublicRegistry(skills, "claude-haiku-4-5-20251001");
+    const names = registry.schemas().map((s) => s.name).sort();
+    expect(names).toEqual(["alpha", "gamma"]);
+  });
+
+  it("returns an empty registry when no skills are public", () => {
+    const skills: LoadedSkill[] = [
+      makeSkill("alpha", "private"),
+      makeSkill("beta", "private"),
+    ];
+    const registry = buildPublicRegistry(skills, "claude-haiku-4-5-20251001");
+    expect(registry.schemas()).toEqual([]);
+  });
+
+  it("returns an empty registry when given no skills at all", () => {
+    expect(buildPublicRegistry([], "claude-haiku-4-5-20251001").schemas()).toEqual([]);
   });
 });
