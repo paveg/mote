@@ -259,15 +259,12 @@ export class SqliteState implements SessionState {
     }));
   }
 
-  async listSessions(): Promise<SessionMeta[]> {
+  async listSessions(limit = 100): Promise<SessionMeta[]> {
     const rows = this.db
-      .query<
-        { id: string; created_at: number; ended_at: number | null },
-        []
-      >(
-        "SELECT id, created_at, ended_at FROM sessions ORDER BY created_at DESC, id DESC",
+      .query<{ id: string; created_at: number; ended_at: number | null }, [number]>(
+        "SELECT id, created_at, ended_at FROM sessions ORDER BY created_at DESC, id DESC LIMIT ?",
       )
-      .all();
+      .all(limit);
     return rows.map(r => ({
       id: r.id,
       createdAt: r.created_at,

@@ -11,11 +11,26 @@ import type { LoadedSkill } from "@/skills/types";
 
 // Resolves the per-call get_session cap from env, falling back to 200
 // per ADR-0009 D4. Re-read on every call so an operator can tweak the
-// env at runtime (e.g., for an interactive debug session).
-function getSessionLimit(): number {
+// env at runtime (e.g., for an interactive debug session). Hard upper
+// bound of 10 000 guards against env-injection memory exhaustion (M7).
+export function getSessionLimit(): number {
   const raw = process.env["MOTE_MCP_GET_SESSION_LIMIT"];
-  const parsed = raw === undefined ? NaN : parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 200;
+  if (!raw) return 200;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 200;
+  return Math.min(parsed, 10_000);
+}
+
+// Resolves the per-call list_sessions cap from env, falling back to
+// 100. Same env-override shape as getSessionLimit. Hard upper bound of
+// 10 000 prevents a high env value from materialising a massive result
+// set in memory (pentest finding F7 + M7).
+export function listSessionsLimit(): number {
+  const raw = process.env["MOTE_MCP_LIST_SESSIONS_LIMIT"];
+  if (!raw) return 100;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 100;
+  return Math.min(parsed, 10_000);
 }
 
 // One MCP-exposed tool. Schema is valibot (consistent with the agent
@@ -41,13 +56,14 @@ function buildTools(
 ): ReadonlyArray<McpTool> {
   const tools: McpTool[] = [];
 
-  // list_sessions — no args
+  // list_sessions — no args; capped at MOTE_MCP_LIST_SESSIONS_LIMIT (default 100)
   tools.push({
     name: "list_sessions",
-    description: "List session ids ordered by created_at (latest first).",
+    description: "List session ids ordered by created_at (latest first). Capped at MOTE_MCP_LIST_SESSIONS_LIMIT (default 100).",
     schema: v.object({}),
     handler: async () => {
-      const meta = await ctx.state.listSessions();
+      const limit = listSessionsLimit();
+      const meta = await ctx.state.listSessions(limit);
       if (meta.length === 0) return "(no sessions)";
       const lines = meta.map(
         m => `- ${m.id}  ${new Date(m.createdAt).toISOString()}`,
