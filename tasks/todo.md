@@ -195,53 +195,69 @@ Completed 2026-05-02 across 2 commits (foundations + server). Project total: **~
 
 ---
 
-## Active milestone: M4 — A2A endpoint (Hono on Cloudflare Workers + local Bun)
+## Completed milestone: M4 — A2A endpoint ✅
 
-> Goal: expose mote as a network-reachable A2A protocol endpoint via `paveg/hono-a2a@0.1.0`. ADR-0010 + ADR-0011 govern the surface and hardening.
+Completed 2026-05-03 across 2 commits (Wave 1 + Wave 2). RestrictedRegistry pattern (ADR-0011 D4) + SqliteTaskStore + Bun/Workers entrypoints.
 
 ### M4 done criteria
 
-- [ ] `bun run a2a-serve --port 8787` starts a local Bun A2A server (default bind `127.0.0.1`)
-- [ ] `wrangler deploy` ships the same agent on Cloudflare Workers (HTTPS via Workers default)
-- [ ] `POST /` (JSON-RPC `message/send`) round-trips through `runLoop` with a **restricted tool surface** (skills with `mcp: public` only, NO `read_file` / `memory_*` / `search_sessions`)
-- [ ] `GET /.well-known/agent-card.json` returns mote's card without auth, listing only `mcp: public` skills
-- [ ] `tasks/resubscribe` after server restart succeeds against the SqliteTaskStore (local Bun); falls back gracefully on Workers (InMemoryTaskStore)
-- [ ] Bearer token validation: `MOTE_A2A_TOKEN` ≥ 32 chars, denylist of weak values rejected at startup (ADR-0011 D2)
-- [ ] TLS posture: non-localhost bind without `MOTE_A2A_TLS_CERT/KEY` → server fail-closed at startup (ADR-0011 D1)
-- [ ] Token redaction regression test: canary token never appears in errors / response bodies / log captures (ADR-0011 D3)
-- [ ] RestrictedRegistry: A2A `message/send` cannot reach `read_file` / `memory_*` / `search_sessions` regardless of prompt shape (ADR-0011 D4)
-
-### M4 implementation tasks
-
-#### Wave 1 — RestrictedRegistry + SqliteTaskStore + createA2aApp
-
-- [ ] `src/core/state.ts` — `SqliteTaskStore` class implementing `@a2a-js/sdk`'s `TaskStore` interface; new table `a2a_tasks (task_id PK, state, payload_json, created_at, updated_at)`; reuses the existing db connection
-- [ ] `src/channels/a2a.ts` — `createA2aApp(ctx, opts)` factory that:
-  - Validates `MOTE_A2A_TOKEN` (length + denylist) at startup (ADR-0011 D2)
-  - Builds the **public-skill-only ToolRegistry subset** (ADR-0011 D4) — agent card + runLoop both see only this filtered registry
-  - Wires `userBuilder` to constant-time bearer-token comparison (ADR-0010 D2)
-  - Wires `requestLogger` middleware that strips `Authorization` header from log lines (ADR-0011 D3)
-  - Wires the AgentExecutor → `runLoop` bridge with the restricted context
-  - Returns the `Hono` sub-app from `hono-a2a`'s `a2aApp(...)`
-- [ ] Tests: token validation paths, token redaction canary, restricted registry contents per request, agent card public-skill-only filter, prompt-asks-for-read_file → tool unavailable
-
-#### Wave 2 — entrypoints + Workers + e2e
-
-- [ ] `src/entry/a2a-serve.ts` — Bun entry; reads `MOTE_A2A_BIND` (default `127.0.0.1`), `MOTE_A2A_PORT` (default `8787`), TLS env vars; uses `Bun.serve({ tls })` when configured (ADR-0011 D1)
-- [ ] `src/entry/a2a-worker.ts` — Cloudflare Worker entry; uses `InMemoryTaskStore` instead of SqliteTaskStore (ADR-0010 D7)
-- [ ] `wrangler.toml` — Workers config (name, compatibility_date, env var bindings)
-- [ ] `package.json` scripts — `a2a-serve`, `a2a-deploy`
-- [ ] `tests/e2e/m0.sh` extension — A2A smoke (auto-skips without `MOTE_A2A_TOKEN`)
-- [ ] README update with deployment patterns (localhost, reverse proxy with TLS, Workers)
+- [x] `bun run a2a-serve --port 8787` starts a local Bun A2A server (default bind `127.0.0.1`)
+- [x] `wrangler deploy` ships the same agent on Cloudflare Workers (HTTPS via Workers default)
+- [x] `POST /` (JSON-RPC `message/send`) round-trips through `runLoop` with a **restricted tool surface** (skills with `mcp: public` only)
+- [x] `GET /.well-known/agent-card.json` returns mote's card without auth, listing only `mcp: public` skills
+- [x] `tasks/resubscribe` after server restart succeeds against SqliteTaskStore; falls back to InMemoryTaskStore on Workers
+- [x] Bearer token validation (ADR-0011 D2), TLS fail-closed (D1), redaction canary test (D3), RestrictedRegistry isolation (D4)
 
 ### Out of scope for M4
 
-- Per-skill `mcp.tools: [...]` allowlist (deferred follow-up ADR — D4 future extension)
-- zxcvbn entropy estimation for tokens
-- Multi-token rotation, OAuth, mTLS
-- D1 / Durable Objects task store on Workers
-- Rate limiting (deferred per ADR-0010 D4)
-- OS-layer sandboxing of `bash` / `write_file` (no such tools exist yet)
+Per-skill `mcp.tools` allowlist, zxcvbn entropy estimation, multi-token rotation, OAuth/mTLS, D1/Durable Objects task store, rate limiting, OS-layer sandbox.
+
+---
+
+## Active milestone: M5 — Telegram channel
+
+> Goal: expose mote as a Telegram bot with DM pairing flow + RestrictedRegistry tool surface. ADR-0012 governs the security model.
+
+### M5 done criteria
+
+- [ ] `bun run gateway` long-polls `getUpdates` against `https://api.telegram.org/bot<token>/getUpdates` (ADR-0012 D1)
+- [ ] `MOTE_TELEGRAM_TOKEN` validated at startup (`\d+:[A-Za-z0-9_-]{35}` + obvious-test denylist); fail-closed if unset/malformed (D2)
+- [ ] Bot token redaction canary test: token never appears in any thrown error / log line / audit entry (D2)
+- [ ] Allowlist persisted at `<workspaceDir>/telegram-allowlist.json` (mode `0o600`); not in `state.db` (D3)
+- [ ] Pairing flow: pending DM → 128-bit hex code (`crypto.randomBytes(16)`); master `/approve <code>` adds to allowlist; codes are single-use, 24h TTL, in-memory (D4)
+- [ ] Master `/revoke <userId>` removes from allowlist (D4)
+- [ ] Approved DMs (master OR paired user) → `runLoop` receives **always** RestrictedRegistry (no master opt-in path) (D5)
+- [ ] Inbound envelope normalized to `{ channel: "telegram", from, timestamp, body }` (D6)
+- [ ] Audit log at `<workspaceDir>/telegram-audit.log` (mode `0o600`); pairing codes stored as SHA-256 prefix (8 hex); bot token NEVER in log (D7)
+- [ ] Voice / photo / file → "text only" reply; group / channel posts silently ignored (D8)
+
+### M5 implementation tasks
+
+#### Wave 1 — primitives (allowlist + pairing + audit)
+
+- [ ] `src/channels/telegram-allowlist.ts` — file-based allowlist with `0o600` atomic writes, JSON schema validation (D3)
+- [ ] `src/channels/telegram-pairing.ts` — in-memory `Map<code, { userId, expiresAt }>` with 24h TTL, single-use semantics, `crypto.randomBytes(16).toString("hex")` codes (D4)
+- [ ] `src/channels/telegram-audit.ts` — append-only logger; redacts bot token; SHA-256 prefix for pairing codes (D7)
+- [ ] Tests: each module has happy path + boundary (expired code, missing/malformed allowlist file, audit redaction canary)
+
+#### Wave 2 — gateway + entry + e2e
+
+- [ ] `src/channels/telegram.ts` — `createTelegramGateway(ctx, opts)` factory: long-poll loop with `update_id` offset, sendMessage helper, command parser (`/approve`, `/revoke`), envelope normalization, RestrictedRegistry construction matching ADR-0011 D4 (D1/D5/D6)
+- [ ] `src/entry/gateway.ts` — Bun entry; validates `MOTE_TELEGRAM_TOKEN` format + `MOTE_TELEGRAM_MASTER_ID` required; fail-closed (D2)
+- [ ] DM-only filter (`chat.type === "private"`); voice/photo/file reply (D8)
+- [ ] `package.json` script: `gateway`
+- [ ] `tests/e2e/m0.sh` extension — Telegram smoke (auto-skips without `MOTE_TELEGRAM_TOKEN` + `MOTE_TELEGRAM_MASTER_ID`)
+- [ ] README + CLAUDE.md updates: bot creation flow, env var setup, `MOTE_TELEGRAM_MASTER_ID` discovery
+
+### Out of scope for M5
+
+- Voice / photo / file / sticker / poll content — text only (D8)
+- Group chat / channel posts — DM only (D8)
+- Webhook transport — long-poll only; webhook deferred to a follow-up ADR (D1)
+- Multi-bot / multiple `MOTE_TELEGRAM_TOKEN` instances
+- Rate limiting beyond pairing-code attempts
+- i18n of bot replies (English only)
+- Master opt-in to full registry — explicitly rejected by ADR-0012 D5
 
 ---
 
@@ -249,8 +265,8 @@ Completed 2026-05-02 across 2 commits (foundations + server). Project total: **~
 
 - [ ] **Before M3 (MCP server)**: write **ADR-0009: MCP server security model**. Cover transport (stdio default; TCP behind shared-secret token), capability gating for `invoke_skill` (full tool registry vs curated subset), and rejection of unauthenticated TCP callers.
 - [ ] **Before M4 (A2A endpoint)**: write **ADR-0010: A2A endpoint security**. Cover `Access-Control-Allow-Origin` allowlist (no `*`), rate limiting (Hono `hono/rate-limiter`), request body size cap.
-- [ ] **Before M5 (Telegram pairing)**: write **ADR-0012: Telegram channel security** (renumbered from 0011 — that slot was taken by A2A endpoint hardening). Cover pairing-code entropy (≥128 bits via `crypto.randomBytes(16).toString("hex")`, single-use), allowlist storage (file with `0o600` or env-var-only, NOT inside writable `state.db`), and inbound `from.id` allowlist enforcement before any tool dispatch.
-- [x] **Before any `bash` tool**: written as **ADR-0013** (Proposed 2026-05-03) — sandbox required (`srt` / `nono`), allowlist mode default, workspace-confined cwd, timeout / output cap / audit log, opt-in via `MOTE_BASH_ENABLED`, never exposed via MCP / A2A
+- [x] **Before M5 (Telegram pairing)**: written as **ADR-0012** (Accepted 2026-05-03) — long-poll default, bot-token validated + redacted, allowlist file (`0o600`, separate from `state.db`), 128-bit single-use pairing codes with 24h TTL, RestrictedRegistry **always** (no master opt-in), normalized envelope, audit log with SHA-256-prefixed codes
+- [x] **Before any `bash` tool**: written as **ADR-0013** (Accepted 2026-05-03) — sandbox required (`srt` / `nono`), allowlist mode default, workspace-confined cwd, timeout / output cap / audit log, opt-in via `MOTE_BASH_ENABLED`, never exposed via MCP / A2A
 - [ ] **Before any `write_file` tool**: write a parallel ADR (workspace-confined; audit log; no sandbox needed; same shell-metachar concerns absent)
 - [ ] **Before any `network-fetch` tool**: write a parallel ADR (host allowlist; timeout; SSRF block via private-IP rejection)
 
@@ -262,3 +278,4 @@ Completed 2026-05-02 across 2 commits (foundations + server). Project total: **~
 - **M2 — SQLite + memory nudge** (2026-05-03). 2 commits, +328 LOC production / +396 LOC tests. `JsonlState` replaced by `SqliteState` (bun:sqlite + FTS5 trigram, 0o600 + WAL pragmas); `search_sessions` exposed; `memory_append` / `memory_edit` tools with single-occurrence-edit enforcement; periodic `memory_nudge` system message at the configured interval (default 10 iterations).
 - **Boundary CRITICAL fixes + Tier 1/2 cost work** (2026-05-03, post-M2). 3 commits: pinned 4 audited boundary cases (no code fixes needed — implementations already correct), added `parent_session_id` schema with idempotent migration (recovers impl-guide §5 deviation, foundation for Tier 3 compaction), split system prompt into multi-block cached sections so MEMORY.md edits no longer invalidate the base/SOUL caches. 9 new tests, 172 unit tests + 1 skip.
 - **M3 — MCP server export** (2026-05-02). 2 commits (foundations + server). `LoadedSkill` gains `mcp: "public" | "private"` field; `SqliteState` gains `listSessions` / `getSession`; `src/mcp/server.ts` exposes 6 ADR-0009 D2 tools; `src/mcp/llms-txt.ts` generates llms.txt on startup; `src/entry/mcp-serve.ts` wires stdio transport. 218 unit tests + 1 skip.
+- **M4 — A2A endpoint** (2026-05-03). 2 commits (Wave 1 + Wave 2). `SqliteTaskStore` adds the `a2a_tasks` table; `src/channels/a2a.ts` builds a per-request `RestrictedRegistry` (public skills only), validates the bearer token (length + denylist) at startup, and redacts the `Authorization` header before any logger sees it (ADR-0011 D2/D3/D4); `src/entry/a2a-serve.ts` fail-closes when a non-localhost bind lacks TLS env (D1); `src/entry/a2a-worker.ts` + `wrangler.toml` ship the same factory on Cloudflare Workers with `InMemoryTaskStore`.
