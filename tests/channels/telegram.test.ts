@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { normalizeUpdate } from "@/channels/telegram";
-import { buildPublicRegistry, validateToken } from "@/channels/telegram";
+import {
+  buildPublicRegistry,
+  callApi,
+  normalizeUpdate,
+  validateToken,
+  type FetchFn,
+} from "@/channels/telegram";
 import type { LoadedSkill } from "@/skills/types";
 
 const baseFrom = { id: 12345, is_bot: false } as const;
@@ -269,5 +274,119 @@ describe("buildPublicRegistry", () => {
 
   it("returns an empty registry when given no skills at all", () => {
     expect(buildPublicRegistry([], "claude-haiku-4-5-20251001").schemas()).toEqual([]);
+  });
+});
+
+describe("callApi", () => {
+  const TOKEN = `1234567890:${"a".repeat(35)}`;
+
+  it("returns the unwrapped Telegram result on ok=true", async () => {
+    const fetchMock = (async () =>
+      new Response(JSON.stringify({ ok: true, result: { hello: "world" } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as FetchFn;
+    const result = await callApi<{ hello: string }>(TOKEN, "getMe", {}, fetchMock);
+    expect(result).toEqual({ hello: "world" });
+  });
+
+  it("posts to https://api.telegram.org/bot<token>/<method> with JSON body", async () => {
+    let capturedUrl = "";
+    let capturedBody = "";
+    let capturedHeaders: Record<string, string> = {};
+    const fetchMock = (async (input: string, init?: RequestInit) => {
+      capturedUrl = input;
+      capturedBody = String(init?.body ?? "");
+      const hdrs = init?.headers ?? {};
+      if (hdrs instanceof Headers) {
+        capturedHeaders = Object.fromEntries(hdrs.entries());
+      } else {
+        capturedHeaders = hdrs as Record<string, string>;
+      }
+      return new Response(JSON.stringify({ ok: true, result: 1 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as FetchFn;
+    await callApi(TOKEN, "getUpdates", { offset: 5, timeout: 30 }, fetchMock);
+    expect(capturedUrl).toBe(`https://api.telegram.org/bot${TOKEN}/getUpdates`);
+    expect(JSON.parse(capturedBody)).toEqual({ offset: 5, timeout: 30 });
+    expect(capturedHeaders["content-type"]).toBe("application/json");
+  });
+
+  it("throws with token redacted when fetch rejects (network error)", async () => {
+    const fetchMock = (async () => {
+      throw new Error(`connection failed for https://api.telegram.org/bot${TOKEN}/getMe`);
+    }) as FetchFn;
+    let caught: Error | null = null;
+    try {
+      await callApi(TOKEN, "getMe", {}, fetchMock);
+    } catch (err) {
+      caught = err as Error;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught?.message).not.toContain(TOKEN);
+    expect(caught?.message).toContain("<redacted>");
+  });
+
+  it("throws with token redacted when Telegram returns ok=false", async () => {
+    const fetchMock = (async () =>
+      new Response(
+        JSON.stringify({
+          ok: false,
+          error_code: 401,
+          description: `Unauthorized: token ${TOKEN} is invalid`,
+        }),
+        { status: 401, headers: { "content-type": "application/json" } },
+      )) as FetchFn;
+    let caught: Error | null = null;
+    try {
+      await callApi(TOKEN, "getMe", {}, fetchMock);
+    } catch (err) {
+      caught = err as Error;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught?.message).not.toContain(TOKEN);
+    expect(caught?.message).toContain("<redacted>");
+    expect(caught?.message).toContain("code 401");
+  });
+
+  it("throws with token redacted when response body is not JSON", async () => {
+    const fetchMock = (async () =>
+      new Response("not json", {
+        status: 502,
+        headers: { "content-type": "text/plain" },
+      })) as FetchFn;
+    let caught: Error | null = null;
+    try {
+      await callApi(TOKEN, "getMe", {}, fetchMock);
+    } catch (err) {
+      caught = err as Error;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught?.message).not.toContain(TOKEN);
+  });
+
+  it("throws when ok=true but result is missing", async () => {
+    const fetchMock = (async () =>
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as FetchFn;
+    await expect(callApi(TOKEN, "getMe", {}, fetchMock)).rejects.toThrow(/missing result/);
+  });
+
+  it("uses the sanitized URL form in error messages (no <token> substring)", async () => {
+    const fetchMock = (async () => {
+      throw new Error("oops");
+    }) as FetchFn;
+    let caught: Error | null = null;
+    try {
+      await callApi(TOKEN, "getUpdates", {}, fetchMock);
+    } catch (err) {
+      caught = err as Error;
+    }
+    expect(caught?.message).toContain("https://api.telegram.org/bot<redacted>/getUpdates");
+    expect(caught?.message).not.toContain(TOKEN);
   });
 });
