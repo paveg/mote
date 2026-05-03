@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (2026-05-03; awaiting user accept before M3 implementation begins)
+Accepted (2026-05-03)
 
 ## Context
 
@@ -62,7 +62,9 @@ Rationale: the agent is the primary caller of skills (registered as tools in the
 
 ### D4. `get_session` response shape
 
-Returns the full message list as a JSON array, capped at the most recent **200 messages** of the session. If the session has more, the response includes a `truncated: true` flag and the oldest 200 only — i.e., the cap protects the caller from accidentally pulling a huge session. M3 ships with the cap; M3+ may add a `before` / `after` cursor.
+Returns the full message list as a JSON array, capped at the most recent **200 messages** of the session by default. If the session has more, the response includes a `truncated: true` flag and the most-recent 200 only — i.e., the cap protects the caller from accidentally pulling a huge session.
+
+The 200 default is a heuristic — it has no external authority, just observation of typical session size (~10–50 messages) plus headroom and reasonable token / payload bounds (≈100k tokens / ≈200KB JSON). The operator may override via `MOTE_MCP_GET_SESSION_LIMIT` env var. M3+ may add a `before` / `after` cursor for paginated reads.
 
 ### D5. `llms.txt` format
 
