@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (2026-05-03; awaiting user accept before M4 implementation begins)
+Accepted (2026-05-03)
 
 ## Context
 

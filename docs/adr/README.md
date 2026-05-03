@@ -19,5 +19,5 @@ Accepted design decisions for mote. To add a new one:
 | 0007 | [Support both MCP server and client (M3+)](./0007-mcp-server-and-client.md) | Accepted |
 | 0008 | [Workspace-confinement policy for filesystem tools](./0008-workspace-confinement-policy.md) | Accepted |
 | 0009 | [MCP server security model](./0009-mcp-server-security-model.md) | Accepted |
-| 0010 | [A2A endpoint security model](./0010-a2a-endpoint-security-model.md) | Proposed |
-| 0011 | [A2A endpoint hardening (TLS, token entropy, log redaction, skill recursion)](./0011-a2a-endpoint-hardening.md) | Proposed |
+| 0010 | [A2A endpoint security model](./0010-a2a-endpoint-security-model.md) | Accepted |
+| 0011 | [A2A endpoint hardening (TLS, token entropy, log redaction, RestrictedRegistry)](./0011-a2a-endpoint-hardening.md) | Accepted |

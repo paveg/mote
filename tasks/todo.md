@@ -195,7 +195,53 @@ Completed 2026-05-02 across 2 commits (foundations + server). Project total: **~
 
 ---
 
-## Next milestone: M4 — A2A endpoint
+## Active milestone: M4 — A2A endpoint (Hono on Cloudflare Workers + local Bun)
+
+> Goal: expose mote as a network-reachable A2A protocol endpoint via `paveg/hono-a2a@0.1.0`. ADR-0010 + ADR-0011 govern the surface and hardening.
+
+### M4 done criteria
+
+- [ ] `bun run a2a-serve --port 8787` starts a local Bun A2A server (default bind `127.0.0.1`)
+- [ ] `wrangler deploy` ships the same agent on Cloudflare Workers (HTTPS via Workers default)
+- [ ] `POST /` (JSON-RPC `message/send`) round-trips through `runLoop` with a **restricted tool surface** (skills with `mcp: public` only, NO `read_file` / `memory_*` / `search_sessions`)
+- [ ] `GET /.well-known/agent-card.json` returns mote's card without auth, listing only `mcp: public` skills
+- [ ] `tasks/resubscribe` after server restart succeeds against the SqliteTaskStore (local Bun); falls back gracefully on Workers (InMemoryTaskStore)
+- [ ] Bearer token validation: `MOTE_A2A_TOKEN` ≥ 32 chars, denylist of weak values rejected at startup (ADR-0011 D2)
+- [ ] TLS posture: non-localhost bind without `MOTE_A2A_TLS_CERT/KEY` → server fail-closed at startup (ADR-0011 D1)
+- [ ] Token redaction regression test: canary token never appears in errors / response bodies / log captures (ADR-0011 D3)
+- [ ] RestrictedRegistry: A2A `message/send` cannot reach `read_file` / `memory_*` / `search_sessions` regardless of prompt shape (ADR-0011 D4)
+
+### M4 implementation tasks
+
+#### Wave 1 — RestrictedRegistry + SqliteTaskStore + createA2aApp
+
+- [ ] `src/core/state.ts` — `SqliteTaskStore` class implementing `@a2a-js/sdk`'s `TaskStore` interface; new table `a2a_tasks (task_id PK, state, payload_json, created_at, updated_at)`; reuses the existing db connection
+- [ ] `src/channels/a2a.ts` — `createA2aApp(ctx, opts)` factory that:
+  - Validates `MOTE_A2A_TOKEN` (length + denylist) at startup (ADR-0011 D2)
+  - Builds the **public-skill-only ToolRegistry subset** (ADR-0011 D4) — agent card + runLoop both see only this filtered registry
+  - Wires `userBuilder` to constant-time bearer-token comparison (ADR-0010 D2)
+  - Wires `requestLogger` middleware that strips `Authorization` header from log lines (ADR-0011 D3)
+  - Wires the AgentExecutor → `runLoop` bridge with the restricted context
+  - Returns the `Hono` sub-app from `hono-a2a`'s `a2aApp(...)`
+- [ ] Tests: token validation paths, token redaction canary, restricted registry contents per request, agent card public-skill-only filter, prompt-asks-for-read_file → tool unavailable
+
+#### Wave 2 — entrypoints + Workers + e2e
+
+- [ ] `src/entry/a2a-serve.ts` — Bun entry; reads `MOTE_A2A_BIND` (default `127.0.0.1`), `MOTE_A2A_PORT` (default `8787`), TLS env vars; uses `Bun.serve({ tls })` when configured (ADR-0011 D1)
+- [ ] `src/entry/a2a-worker.ts` — Cloudflare Worker entry; uses `InMemoryTaskStore` instead of SqliteTaskStore (ADR-0010 D7)
+- [ ] `wrangler.toml` — Workers config (name, compatibility_date, env var bindings)
+- [ ] `package.json` scripts — `a2a-serve`, `a2a-deploy`
+- [ ] `tests/e2e/m0.sh` extension — A2A smoke (auto-skips without `MOTE_A2A_TOKEN`)
+- [ ] README update with deployment patterns (localhost, reverse proxy with TLS, Workers)
+
+### Out of scope for M4
+
+- Per-skill `mcp.tools: [...]` allowlist (deferred follow-up ADR — D4 future extension)
+- zxcvbn entropy estimation for tokens
+- Multi-token rotation, OAuth, mTLS
+- D1 / Durable Objects task store on Workers
+- Rate limiting (deferred per ADR-0010 D4)
+- OS-layer sandboxing of `bash` / `write_file` (no such tools exist yet)
 
 ---
 
