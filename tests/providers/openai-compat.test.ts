@@ -393,6 +393,39 @@ test("complete: includes tools in the request body when registry has tools", asy
   expect(parsed.tools?.[0]?.function.name).toBe("read_file");
 });
 
+test("complete: SystemPrompt array is flattened to a single system message", async () => {
+  let capturedBody: string = "";
+  const fakeFetch = async (_url: string | URL | Request, init?: RequestInit) => {
+    capturedBody = init?.body as string;
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { role: "assistant", content: "ok" } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+      { status: 200 },
+    );
+  };
+  const provider = createOpenAICompatProvider({
+    apiKey: "sk-test",
+    fetch: fakeFetch as unknown as typeof globalThis.fetch,
+  });
+  await provider.complete({
+    model: "gpt-test",
+    messages: [],
+    tools: [],
+    system: [
+      { text: "FIRST" },
+      { text: "SECOND" },
+    ],
+  });
+  const parsed = JSON.parse(capturedBody) as {
+    messages: Array<{ role: string; content: string }>;
+  };
+  // First message must be the flattened system message
+  expect(parsed.messages[0]?.role).toBe("system");
+  expect(parsed.messages[0]?.content).toBe("FIRST\n\nSECOND");
+});
+
 test("complete: omits tools field when empty", async () => {
   let capturedBody: string = "";
   const fakeFetch = async (_url: string | URL | Request, init?: RequestInit) => {

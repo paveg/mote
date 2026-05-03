@@ -1,18 +1,20 @@
+import type { SystemSection } from "@/providers/types";
+
 const BASE_SYSTEM_PROMPT = "You are mote, a minimal personal AI agent.";
 
-// Builds the full system prompt by stacking:
-//   1. The base mote prompt (always)
-//   2. SOUL.md if present (persona)
-//   3. MEMORY.md if present (durable memory)
+// Returns the structured system prompt as an ordered list of sections.
+// Each section produces a cache breakpoint for Anthropic; OpenAI-compat
+// providers concatenate the sections into a single system message.
 //
-// Each non-empty section is separated by a blank line. Returns just the
-// base prompt when both files are absent.
+// Stacking order: base → persona (SOUL.md) → memory (MEMORY.md). When
+// MEMORY.md changes (e.g., the agent calls memory_append), the base
+// and persona caches stay valid; only the memory section invalidates.
 export function composeSystemPrompt(
   soul: string | null,
   memory: string | null,
-): string {
-  const sections: string[] = [BASE_SYSTEM_PROMPT];
-  if (soul) sections.push(`# Persona (SOUL.md)\n${soul}`);
-  if (memory) sections.push(`# Memory (MEMORY.md)\n${memory}`);
-  return sections.join("\n\n");
+): SystemSection[] {
+  const sections: SystemSection[] = [{ text: BASE_SYSTEM_PROMPT, cache: true }];
+  if (soul) sections.push({ text: `# Persona (SOUL.md)\n${soul}`, cache: true });
+  if (memory) sections.push({ text: `# Memory (MEMORY.md)\n${memory}`, cache: true });
+  return sections;
 }

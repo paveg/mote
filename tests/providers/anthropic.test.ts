@@ -231,6 +231,66 @@ test("complete: extracts toolCalls from assistant tool_use blocks", async () => 
   ]);
 });
 
+test("complete: SystemPrompt array yields one cached block per section", async () => {
+  let captured: unknown;
+  const create = mock(async (params: unknown) => {
+    captured = params;
+    return {
+      content: [{ type: "text", text: "ok" }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    };
+  });
+  const stub: AnthropicLike = { messages: { create } };
+  const provider = createAnthropicProvider({ client: stub });
+
+  await provider.complete({
+    model: "claude-sonnet-4-6",
+    messages: [],
+    tools: [],
+    system: [
+      { text: "BASE", cache: true },
+      { text: "PERSONA", cache: true },
+      { text: "MEMORY", cache: true },
+    ],
+  });
+
+  const params = captured as { system?: Array<{ text: string; cache_control?: unknown }> };
+  expect(params.system).toHaveLength(3);
+  for (const block of params.system!) {
+    expect(block.cache_control).toEqual({ type: "ephemeral" });
+  }
+  expect(params.system![0]?.text).toBe("BASE");
+  expect(params.system![1]?.text).toBe("PERSONA");
+  expect(params.system![2]?.text).toBe("MEMORY");
+});
+
+test("complete: SystemPrompt array with cache:false omits cache_control on that section", async () => {
+  let captured: unknown;
+  const create = mock(async (params: unknown) => {
+    captured = params;
+    return {
+      content: [{ type: "text", text: "ok" }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    };
+  });
+  const stub: AnthropicLike = { messages: { create } };
+  const provider = createAnthropicProvider({ client: stub });
+
+  await provider.complete({
+    model: "claude-sonnet-4-6",
+    messages: [],
+    tools: [],
+    system: [
+      { text: "CACHED" },          // default: cache: true
+      { text: "ALWAYS_FRESH", cache: false },
+    ],
+  });
+
+  const params = captured as { system?: Array<{ cache_control?: unknown }> };
+  expect(params.system![0]?.cache_control).toEqual({ type: "ephemeral" });
+  expect(params.system![1]?.cache_control).toBeUndefined();
+});
+
 test("complete: sanitizes API errors — never echoes the API key", async () => {
   const SECRET = "sk-ant-test-fake-key-DO-NOT-LEAK";
   process.env["LLM_API_KEY"] = SECRET;

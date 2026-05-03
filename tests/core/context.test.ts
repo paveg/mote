@@ -84,7 +84,12 @@ testCtx("buildContext creates the workspace, generates a sessionId, and wires th
   expectCtx(ctx.workspaceDir).toBe(joinCtx(fakeHomeCtx, ".mote", "agents", "default"));
   expectCtx(ctx.opts.maxIterations).toBe(50);
   expectCtx(ctx.opts.budget.remaining).toBe(1_000_000);
-  expectCtx(typeof ctx.systemPrompt()).toBe("string");
+  // systemPrompt now returns SystemPrompt (string | SystemSection[])
+  const promptResult = ctx.systemPrompt();
+  const promptText = typeof promptResult === "string"
+    ? promptResult
+    : promptResult.map(s => s.text).join("\n\n");
+  expectCtx(typeof promptText).toBe("string");
 });
 
 testCtx("buildContext registers read_file in the default registry", async () => {
@@ -241,9 +246,12 @@ testM1("buildContext default systemPrompt includes SOUL.md when present", async 
   await writeFileM1(joinM1(dir, "SOUL.md"), "I value brevity.");
 
   const ctx = await buildContextM1({ home: fakeHomeM1, provider: noopProviderM1 });
-  const prompt = ctx.systemPrompt();
-  expectM1(prompt).toContain("You are mote");
-  expectM1(prompt).toContain("I value brevity.");
+  const promptResult = ctx.systemPrompt();
+  const promptText = typeof promptResult === "string"
+    ? promptResult
+    : promptResult.map(s => s.text).join("\n\n");
+  expectM1(promptText).toContain("You are mote");
+  expectM1(promptText).toContain("I value brevity.");
 });
 
 testM1("buildContext default systemPrompt includes MEMORY.md when present", async () => {
@@ -252,14 +260,20 @@ testM1("buildContext default systemPrompt includes MEMORY.md when present", asyn
   await writeFileM1(joinM1(dir, "MEMORY.md"), "User prefers tea over coffee.");
 
   const ctx = await buildContextM1({ home: fakeHomeM1, provider: noopProviderM1 });
-  const prompt = ctx.systemPrompt();
-  expectM1(prompt).toContain("User prefers tea over coffee.");
+  const promptResult = ctx.systemPrompt();
+  const promptText = typeof promptResult === "string"
+    ? promptResult
+    : promptResult.map(s => s.text).join("\n\n");
+  expectM1(promptText).toContain("User prefers tea over coffee.");
 });
 
 testM1("buildContext systemPrompt falls back to base when SOUL/MEMORY are absent", async () => {
   const ctx = await buildContextM1({ home: fakeHomeM1, provider: noopProviderM1 });
-  const prompt = ctx.systemPrompt();
-  expectM1(prompt).toBe("You are mote, a minimal personal AI agent.");
+  const promptResult = ctx.systemPrompt();
+  const promptText = typeof promptResult === "string"
+    ? promptResult
+    : promptResult.map(s => s.text).join("\n\n");
+  expectM1(promptText).toBe("You are mote, a minimal personal AI agent.");
 });
 
 testM1("buildContext does NOT auto-register skills when an injected registry is provided", async () => {

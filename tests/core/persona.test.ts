@@ -1,34 +1,39 @@
 import { test, expect } from "bun:test";
 import { composeSystemPrompt } from "@/core/persona";
 
-test("composeSystemPrompt returns just the base when both files are null", () => {
-  expect(composeSystemPrompt(null, null)).toBe("You are mote, a minimal personal AI agent.");
+test("composeSystemPrompt returns a single base section when SOUL/MEMORY are null", () => {
+  const sections = composeSystemPrompt(null, null);
+  expect(sections).toHaveLength(1);
+  expect(sections[0]?.text).toBe("You are mote, a minimal personal AI agent.");
+  expect(sections[0]?.cache).toBe(true);
 });
 
-test("composeSystemPrompt appends SOUL.md under a heading", () => {
-  const out = composeSystemPrompt("I am thoughtful.", null);
-  expect(out).toContain("You are mote");
-  expect(out).toContain("# Persona (SOUL.md)");
-  expect(out).toContain("I am thoughtful.");
+test("composeSystemPrompt appends SOUL section when present", () => {
+  const sections = composeSystemPrompt("I value brevity.", null);
+  expect(sections).toHaveLength(2);
+  expect(sections[1]?.text).toContain("# Persona (SOUL.md)");
+  expect(sections[1]?.text).toContain("I value brevity.");
+  expect(sections[1]?.cache).toBe(true);
 });
 
-test("composeSystemPrompt appends MEMORY.md under a heading", () => {
-  const out = composeSystemPrompt(null, "remembered things");
-  expect(out).toContain("# Memory (MEMORY.md)");
-  expect(out).toContain("remembered things");
+test("composeSystemPrompt appends MEMORY section when present", () => {
+  const sections = composeSystemPrompt(null, "remember this");
+  expect(sections).toHaveLength(2);
+  expect(sections[1]?.text).toContain("# Memory (MEMORY.md)");
+  expect(sections[1]?.text).toContain("remember this");
 });
 
 test("composeSystemPrompt orders: base, persona, memory", () => {
-  const out = composeSystemPrompt("persona", "memory");
-  const baseIdx = out.indexOf("You are mote");
-  const personaIdx = out.indexOf("# Persona");
-  const memoryIdx = out.indexOf("# Memory");
-  expect(baseIdx).toBeLessThan(personaIdx);
-  expect(personaIdx).toBeLessThan(memoryIdx);
+  const sections = composeSystemPrompt("p", "m");
+  expect(sections).toHaveLength(3);
+  expect(sections[0]?.text).toContain("You are mote");
+  expect(sections[1]?.text).toContain("Persona");
+  expect(sections[2]?.text).toContain("Memory");
 });
 
-test("composeSystemPrompt separates sections with blank lines", () => {
-  const out = composeSystemPrompt("persona", "memory");
-  expect(out).toContain("\n\n# Persona");
-  expect(out).toContain("\n\n# Memory");
+test("each section is marked cache:true so Anthropic inserts a breakpoint", () => {
+  const sections = composeSystemPrompt("p", "m");
+  for (const s of sections) {
+    expect(s.cache).toBe(true);
+  }
 });

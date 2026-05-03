@@ -12,6 +12,18 @@ export interface ToolSchema {
   input_schema: object;
 }
 
+// A section of the system prompt. `cache: true` (the default) asks the
+// provider to insert a cache breakpoint at the end of this section so
+// subsequent calls with the same prefix can hit the cache. Anthropic
+// honors up to 4 cache breakpoints per request; OpenAI-compatible
+// providers ignore the hint and concatenate to a single system message.
+export interface SystemSection {
+  readonly text: string;
+  readonly cache?: boolean;
+}
+
+export type SystemPrompt = string | ReadonlyArray<SystemSection>;
+
 // Input to provider.complete. Provider-agnostic: no cache_control, no
 // thinking config, no Anthropic-specific fields. Provider implementations
 // own those internally (see ADR-0005).
@@ -19,7 +31,7 @@ export interface CompletionRequest {
   model: string;
   messages: Message[];
   tools: ToolSchema[];
-  system: string;
+  system: SystemPrompt;
 }
 
 // Output of provider.complete.

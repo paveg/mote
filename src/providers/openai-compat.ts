@@ -2,6 +2,7 @@ import type {
   CompletionRequest,
   CompletionResponse,
   Provider,
+  SystemPrompt,
   ToolSchema,
 } from "@/providers/types";
 import type {
@@ -71,6 +72,13 @@ export interface OpenAICompatProviderOpts {
   maxTokens?: number;
   // Test seam: replace the global fetch.
   fetch?: FetchFn;
+}
+
+// OpenAI Chat Completions doesn't support cache_control — flatten sections
+// to a single string joined by blank lines.
+function flattenSystem(system: SystemPrompt): string {
+  if (typeof system === "string") return system;
+  return system.map(s => s.text).join("\n\n");
 }
 
 // Pure converter: internal Message[] → OpenAI message list.
@@ -225,7 +233,7 @@ export function createOpenAICompatProvider(
     complete: async (req: CompletionRequest): Promise<CompletionResponse> => {
       const body: OpenAIChatRequest = {
         model: req.model,
-        messages: toOpenAIMessages(req.messages, req.system),
+        messages: toOpenAIMessages(req.messages, flattenSystem(req.system)),
         ...(req.tools.length > 0 && {
           tools: req.tools.map(toOpenAITool),
         }),

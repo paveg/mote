@@ -1,5 +1,5 @@
 import type { Message, RunOptions } from "@/core/types";
-import type { Provider } from "@/providers/types";
+import type { Provider, SystemPrompt } from "@/providers/types";
 import type { ToolRegistry } from "@/core/registry";
 import type { SearchHit } from "@/core/state";
 import type { MemoryNudge } from "@/core/memory-nudge";
@@ -24,7 +24,7 @@ export interface AgentContext {
   readonly state: SessionState;
   readonly opts: RunOptions;
   readonly signal: AbortSignal;
-  readonly systemPrompt: () => string;
+  readonly systemPrompt: () => SystemPrompt;
   readonly memoryNudge?: MemoryNudge;
 }
 
@@ -49,7 +49,7 @@ export interface BuildContextOpts {
   registry?: ToolRegistry;         // defaults to a new registry with built-in tools
   provider?: Provider;             // defaults to createAnthropicProvider()
   signal?: AbortSignal;            // defaults to a new AbortController.signal
-  systemPrompt?: () => string;     // defaults to a static "You are mote." prompt
+  systemPrompt?: () => SystemPrompt;  // defaults to a static "You are mote." prompt
   maxIterations?: number;          // defaults to 50
   initialBudget?: number;          // defaults to 1_000_000 (input+output tokens combined)
   home?: string;                   // injected for tests; defaults to os.homedir()

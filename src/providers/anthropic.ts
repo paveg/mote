@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ContentBlock, Message } from "@/core/types";
-import type { CompletionRequest, CompletionResponse, Provider } from "@/providers/types";
+import type { CompletionRequest, CompletionResponse, Provider, SystemPrompt } from "@/providers/types";
 
 // Minimal interface our provider consumes from the SDK client.
 // Tests pass a fake of this shape; production passes the real `new Anthropic(...)`.
@@ -88,6 +88,21 @@ export function toAnthropicMessages(
     }));
 }
 
+function buildAnthropicSystem(system: SystemPrompt): unknown[] | undefined {
+  if (typeof system === "string") {
+    if (!system) return undefined;
+    return [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
+  }
+  if (system.length === 0) return undefined;
+  // Up to 4 cache breakpoints per Anthropic request. We only ever ship 3
+  // (base, SOUL, MEMORY) so trimming logic is unnecessary today.
+  return system.map(s => ({
+    type: "text",
+    text: s.text,
+    ...(s.cache !== false && { cache_control: { type: "ephemeral" } }),
+  }));
+}
+
 export function createAnthropicProvider(opts: AnthropicProviderOpts = {}): Provider {
   const maxTokens = opts.maxTokens ?? 4096;
 
@@ -118,10 +133,9 @@ export function createAnthropicProvider(opts: AnthropicProviderOpts = {}): Provi
         messages: toAnthropicMessages(req.messages),
       };
 
-      if (req.system) {
-        body["system"] = [
-          { type: "text", text: req.system, cache_control: { type: "ephemeral" } },
-        ];
+      const systemBlocks = buildAnthropicSystem(req.system);
+      if (systemBlocks !== undefined) {
+        body["system"] = systemBlocks;
       }
 
       let raw: unknown;
