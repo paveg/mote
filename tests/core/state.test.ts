@@ -266,3 +266,56 @@ test("loadLatestSession is deterministic when two sessions share created_at", as
   expect(first).toEqual(second);
   expect(first).toHaveLength(1);
 });
+
+// --- SqliteTaskStore (A2A) -----------------------------------------------
+
+test("SqliteState exposes a2aTaskStore", () => {
+  const taskStore = state.a2aTaskStore;
+  expect(taskStore).toBeDefined();
+});
+
+test("SqliteTaskStore round-trips a task", async () => {
+  const taskStore = state.a2aTaskStore;
+  const task = {
+    id: "task_001",
+    contextId: "ctx_001",
+    kind: "task" as const,
+    status: {
+      state: "completed" as const,
+      timestamp: new Date().toISOString(),
+    },
+  };
+  await taskStore.save(task);
+  const loaded = await taskStore.load(task.id);
+  expect(loaded).toEqual(task);
+});
+
+test("SqliteTaskStore returns undefined for unknown task id", async () => {
+  const taskStore = state.a2aTaskStore;
+  const result = await taskStore.load("nonexistent_task_id");
+  expect(result).toBeUndefined();
+});
+
+test("SqliteTaskStore upserts on second save", async () => {
+  const taskStore = state.a2aTaskStore;
+  const task = {
+    id: "task_upsert",
+    contextId: "ctx_upsert",
+    kind: "task" as const,
+    status: { state: "working" as const, timestamp: new Date().toISOString() },
+  };
+  await taskStore.save(task);
+
+  const updated = { ...task, status: { state: "completed" as const, timestamp: new Date().toISOString() } };
+  await taskStore.save(updated);
+
+  const loaded = await taskStore.load(task.id);
+  expect(loaded?.status.state).toBe("completed");
+});
+
+test("a2a_tasks table is created in schema", () => {
+  const cols = (state as unknown as { db: import("bun:sqlite").Database })
+    .db.query<{ name: string }, []>("PRAGMA table_info(a2a_tasks)").all();
+  expect(cols.map(c => c.name)).toContain("id");
+  expect(cols.map(c => c.name)).toContain("state_json");
+});

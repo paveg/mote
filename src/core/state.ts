@@ -5,6 +5,8 @@ import { randomUUID } from "node:crypto";
 
 import type { Message } from "@/core/types";
 import type { SessionState, SessionMeta, GetSessionResult } from "@/core/context";
+import type { TaskStore } from "@a2a-js/sdk/server";
+import type { Task } from "@a2a-js/sdk";
 
 // Schema. content_json is the full ContentBlock[] as JSON; fts_text is
 // the denormalized concatenated text used for FTS5 indexing. The FTS
@@ -45,7 +47,44 @@ END;
 CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
   INSERT INTO messages_fts(messages_fts, rowid, fts_text, session_id) VALUES ('delete', old.rowid, old.fts_text, old.session_id);
 END;
+
+CREATE TABLE IF NOT EXISTS a2a_tasks (
+  id TEXT PRIMARY KEY,
+  state_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_a2a_tasks_updated ON a2a_tasks(updated_at DESC);
 `;
+
+// SQLite-backed TaskStore for the A2A protocol layer. Tasks are serialized
+// as JSON in the state_json column. The store is bound to the same db
+// connection as SqliteState so it reuses the WAL + 0o600 setup.
+export class SqliteTaskStore implements TaskStore {
+  constructor(private readonly db: Database) {}
+
+  async save(task: Task): Promise<void> {
+    const now = Date.now();
+    this.db
+      .prepare(
+        `INSERT INTO a2a_tasks (id, state_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at`,
+      )
+      .run(task.id, JSON.stringify(task), now, now);
+  }
+
+  async load(taskId: string): Promise<Task | undefined> {
+    const row = this.db
+      .query<{ state_json: string }, [string]>(
+        "SELECT state_json FROM a2a_tasks WHERE id = ?",
+      )
+      .get(taskId);
+    if (!row) return undefined;
+    return JSON.parse(row.state_json) as Task;
+  }
+}
 
 // Result shape for searchSessions. Returned to the LLM via the
 // search_sessions tool — fields chosen for "what would the LLM want
@@ -63,6 +102,7 @@ export interface SearchHit {
 // construction so callers don't have to thread it through every call.
 export class SqliteState implements SessionState {
   private readonly db: Database;
+  private readonly _a2aTaskStore: SqliteTaskStore;
 
   constructor(
     private readonly workspaceDir: string,
@@ -77,6 +117,8 @@ export class SqliteState implements SessionState {
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec(SCHEMA);
     this.migrate();
+    this._a2aTaskStore = new SqliteTaskStore(this.db);
+
     // Apply 0o600 to the db file once it has been created. WAL adds
     // sidecar files (-wal, -shm) that we also lock down.
     if (workspaceDir !== ":memory:") {
@@ -259,6 +301,13 @@ export class SqliteState implements SessionState {
       createdAt: r.created_at,
     }));
     return { messages, truncated };
+  }
+
+  // Exposes the A2A TaskStore bound to this db connection. Callers
+  // should pass this to createA2aApp's opts.taskStore rather than
+  // constructing a second SqliteTaskStore on the same file.
+  get a2aTaskStore(): SqliteTaskStore {
+    return this._a2aTaskStore;
   }
 
   // Closes the underlying connection. Tests call this in afterEach to
