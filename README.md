@@ -74,6 +74,15 @@ Per [ADR-0012](./docs/adr/0012-telegram-channel-security-model.md):
 - The Telegram surface is **always** restricted to skills with `mcp: public` frontmatter — no `read_file` / `memory_*` from Telegram, even for the master. Use the CLI / A2A for full-registry work.
 - Only text DMs are processed. Voice / photo / file get a "text only" reply. Group chats are silently ignored.
 
+## Security
+
+mote bakes security into the design phase. See:
+
+- [docs/adr/](./docs/adr/) — accepted design decisions, including the security ADRs (workspace confinement, MCP / A2A / Telegram channel models, untrusted-content fencing, sub-call cost containment, bash tool policy)
+- A pentest pass (2026-05-03) drove the hardening series under `fix/*` branches; commit messages reference the source findings
+
+To report a vulnerability, please open a private security advisory on GitHub instead of a public issue.
+
 ## License
 
-TBD (decided before public release).
+[MIT](./LICENSE) — see the LICENSE file for the full text.

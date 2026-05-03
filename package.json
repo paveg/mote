@@ -1,9 +1,32 @@
 {
   "name": "@paveg/mote",
   "version": "0.0.0",
-  "description": "Minimal personal AI agent",
+  "description": "Minimal personal AI agent. Bun + TypeScript, ~1500 LOC target.",
   "type": "module",
   "private": true,
+  "license": "MIT",
+  "author": {
+    "name": "Ryota Ikezawa",
+    "email": "pavegy@gmail.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/paveg/mote.git"
+  },
+  "homepage": "https://github.com/paveg/mote#readme",
+  "bugs": {
+    "url": "https://github.com/paveg/mote/issues"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "personal",
+    "bun",
+    "typescript",
+    "mcp",
+    "a2a-protocol",
+    "agentskills"
+  ],
   "bin": {
     "mote": "src/entry/agent.ts"
   },
