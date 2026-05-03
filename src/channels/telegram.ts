@@ -17,7 +17,7 @@ interface TelegramChat {
 
 interface TelegramMessage {
   message_id: number;
-  from: TelegramFrom;
+  from?: TelegramFrom;
   chat: TelegramChat;
   date: number;
   text?: string;
@@ -36,6 +36,7 @@ export function normalizeUpdate(update: TelegramUpdate): InboundEnvelope | null 
   const msg = update.message;
   if (!msg) return null;
   if (msg.chat.type !== "private") return null;
+  if (!msg.from) return null;
 
   const from = String(msg.from.id);
   const timestamp = msg.date * 1000;
@@ -55,5 +56,5 @@ export function normalizeUpdate(update: TelegramUpdate): InboundEnvelope | null 
   if (msg.sticker !== undefined) {
     return { channel: "telegram", from, timestamp, body: "[unsupported: sticker]" };
   }
-  return null;
+  return { channel: "telegram", from, timestamp, body: "[unsupported: unknown]" };
 }

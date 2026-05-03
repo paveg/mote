@@ -133,7 +133,7 @@ describe("normalizeUpdate", () => {
     ).toEqual({ channel: "telegram", from: "12345", timestamp: 4000, body: "[unsupported: sticker]" });
   });
 
-  it("returns null for an empty private message (no text and no media)", () => {
+  it("emits an unsupported marker for an empty/unknown-content private message", () => {
     expect(
       normalizeUpdate({
         update_id: 1,
@@ -143,6 +143,36 @@ describe("normalizeUpdate", () => {
           chat: baseChat("private"),
           date: 1,
         },
+      }),
+    ).toEqual({ channel: "telegram", from: "12345", timestamp: 1000, body: "[unsupported: unknown]" });
+  });
+
+  it("emits unsupported for unrecognized media types (video_note, animation, etc.)", () => {
+    expect(
+      normalizeUpdate({
+        update_id: 1,
+        message: {
+          message_id: 1,
+          from: { ...baseFrom },
+          chat: baseChat("private"),
+          date: 5,
+          // @ts-expect-error - schema is intentionally minimal; video_note isn't in TelegramMessage
+          video_note: { file_id: "x" },
+        },
+      }),
+    ).toEqual({ channel: "telegram", from: "12345", timestamp: 5000, body: "[unsupported: unknown]" });
+  });
+
+  it("returns null when the message has no from (anonymous channel post)", () => {
+    expect(
+      normalizeUpdate({
+        update_id: 1,
+        message: {
+          message_id: 1,
+          chat: baseChat("private"),
+          date: 1,
+          text: "x",
+        } as never, // type-cast: TS won't let us omit `from` against the public shape
       }),
     ).toBeNull();
   });
