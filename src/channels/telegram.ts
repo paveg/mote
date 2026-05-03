@@ -1,6 +1,12 @@
 import { ToolRegistry } from "@/core/registry";
 import type { LoadedSkill } from "@/skills/types";
 import { createSkillToolDefinition } from "@/skills/handler";
+import { runLoop } from "@/core/loop";
+import type { AgentContext } from "@/core/context";
+import type { Allowlist } from "@/channels/telegram-allowlist";
+import type { PairingStore } from "@/channels/telegram-pairing";
+import type { AuditLogger } from "@/channels/telegram-audit";
+import type { Message } from "@/core/types";
 
 export interface InboundEnvelope {
   readonly channel: "telegram";
@@ -142,4 +148,214 @@ export function buildPublicRegistry(
     registry.register(createSkillToolDefinition(skill, { model }));
   }
   return registry;
+}
+
+// ---------------------------------------------------------------------------
+// sendMessage
+// ---------------------------------------------------------------------------
+
+export async function sendMessage(
+  token: string,
+  chatId: number | string,
+  text: string,
+  fetchImpl: FetchFn = fetch,
+): Promise<void> {
+  await callApi(token, "sendMessage", { chat_id: chatId, text }, fetchImpl);
+}
+
+// ---------------------------------------------------------------------------
+// dispatch
+// ---------------------------------------------------------------------------
+
+export interface DispatchDeps {
+  readonly ctx: AgentContext;
+  readonly token: string;
+  readonly masterId: number;
+  readonly registry: ToolRegistry;
+  readonly allowlist: Allowlist;
+  readonly pairing: PairingStore;
+  readonly audit: AuditLogger;
+  readonly fetchImpl?: FetchFn;
+  // Test seam: override the agent dispatch. Default invokes runLoop with a
+  // per-call AgentContext whose registry is the RestrictedRegistry.
+  readonly agentReply?: (env: InboundEnvelope, deps: DispatchDeps) => Promise<string>;
+}
+
+async function defaultAgentReply(env: InboundEnvelope, deps: DispatchDeps): Promise<string> {
+  const restrictedCtx: AgentContext = {
+    ...deps.ctx,
+    registry: deps.registry,
+    sessionId: `telegram_${env.from}_${env.timestamp}`,
+  };
+  const userMessage: Message = {
+    role: "user",
+    content: [{ type: "text", text: env.body }],
+    createdAt: env.timestamp,
+  };
+  try {
+    const result = await runLoop([userMessage], restrictedCtx);
+    const texts: string[] = [];
+    for (const msg of result.messages) {
+      if (msg.role === "assistant") {
+        for (const block of msg.content) {
+          if (block.type === "text") texts.push(block.text);
+        }
+      }
+    }
+    return texts.join("") || "(no response)";
+  } catch (err) {
+    if (process.env["MOTE_DEBUG"] === "1") {
+      console.error("[telegram dispatch] runLoop error:", err);
+    }
+    return `Internal error: ${(err as Error).message.replace(deps.token, "<redacted>")}`;
+  }
+}
+
+export async function dispatch(env: InboundEnvelope, deps: DispatchDeps): Promise<void> {
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const fromId = Number.parseInt(env.from, 10);
+  const isMaster = fromId === deps.masterId;
+
+  // Master command parsing
+  if (isMaster) {
+    const approveMatch = env.body.match(/^\/approve\s+([0-9a-f]{32})\b/);
+    if (approveMatch) {
+      const code = approveMatch[1] as string;
+      const result = deps.pairing.redeem(code);
+      if (result.ok) {
+        await deps.allowlist.add({ userId: result.userId, approvedAt: Date.now() });
+        await deps.audit.log({ type: "approved", from: result.userId, bytes: 0 });
+        await sendMessage(deps.token, deps.masterId, `Approved ${result.userId}.`, fetchImpl);
+        await sendMessage(
+          deps.token,
+          result.userId,
+          "You are now approved. DM me anytime.",
+          fetchImpl,
+        );
+        return;
+      }
+      if (result.reason === "expired") {
+        await deps.audit.log({ type: "rejected", from: deps.masterId, reason: "code expired" });
+        await sendMessage(deps.token, deps.masterId, "Code expired.", fetchImpl);
+        return;
+      }
+      // not_found
+      await deps.audit.log({ type: "rejected", from: deps.masterId, reason: "code not found" });
+      await sendMessage(deps.token, deps.masterId, "No pending pairing for that code.", fetchImpl);
+      return;
+    }
+
+    const revokeMatch = env.body.match(/^\/revoke\s+(-?\d+)\b/);
+    if (revokeMatch) {
+      const targetId = Number.parseInt(revokeMatch[1] as string, 10);
+      await deps.allowlist.remove(targetId);
+      await deps.audit.log({ type: "rejected", from: targetId, reason: "revoked by master" });
+      await sendMessage(deps.token, deps.masterId, `Revoked ${targetId}.`, fetchImpl);
+      return;
+    }
+
+    // master regular DM falls through to the approved-dispatch path below
+  }
+
+  // Allowlist gate (master is auto-allowed, even if not yet in the file)
+  if (!isMaster && !deps.allowlist.has(fromId)) {
+    const pending = deps.pairing.generate(fromId);
+    await deps.audit.log({ type: "pending-pairing", from: fromId, code: pending.code });
+    await sendMessage(
+      deps.token,
+      fromId,
+      `Pairing code: ${pending.code}\nAsk the operator to approve.`,
+      fetchImpl,
+    );
+    await sendMessage(
+      deps.token,
+      deps.masterId,
+      `User ${fromId} is requesting access.\nReply: /approve ${pending.code}`,
+      fetchImpl,
+    );
+    return;
+  }
+
+  // Approved message — log + reply
+  await deps.audit.log({ type: "approved", from: fromId, bytes: env.body.length });
+
+  // Unsupported content reply
+  if (env.body.startsWith("[unsupported:")) {
+    await sendMessage(deps.token, fromId, "Sorry, text only.", fetchImpl);
+    return;
+  }
+
+  // Agent dispatch — RestrictedRegistry per ADR-0012 D5
+  const agentReply = deps.agentReply ?? defaultAgentReply;
+  const reply = await agentReply(env, deps);
+  await sendMessage(deps.token, fromId, reply, fetchImpl);
+}
+
+// ---------------------------------------------------------------------------
+// createTelegramGateway
+// ---------------------------------------------------------------------------
+
+export interface CreateGatewayOpts {
+  readonly token: string;
+  readonly masterId: number;
+  readonly skills: readonly LoadedSkill[];
+  readonly allowlist: Allowlist;
+  readonly pairing: PairingStore;
+  readonly audit: AuditLogger;
+  readonly model: string;
+  readonly abort?: AbortSignal;
+  readonly fetchImpl?: FetchFn;
+  readonly pollTimeoutSec?: number; // default 30
+  readonly agentReply?: DispatchDeps["agentReply"];
+}
+
+export async function createTelegramGateway(
+  ctx: AgentContext,
+  opts: CreateGatewayOpts,
+): Promise<void> {
+  const token = validateToken(opts.token);
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const pollTimeoutSec = opts.pollTimeoutSec ?? 30;
+  const registry = buildPublicRegistry(opts.skills, opts.model);
+
+  let offset = 0;
+  while (!opts.abort?.aborted) {
+    let updates: TelegramUpdate[];
+    try {
+      updates = await callApi<TelegramUpdate[]>(
+        token,
+        "getUpdates",
+        { offset, timeout: pollTimeoutSec },
+        fetchImpl,
+      );
+    } catch (err) {
+      // The error message is already token-redacted by callApi.
+      console.error(`[telegram] getUpdates failed: ${(err as Error).message}`);
+      // Brief back-off so a flaky network does not hot-loop.
+      await new Promise((r) => setTimeout(r, 1000));
+      continue;
+    }
+
+    for (const update of updates) {
+      offset = Math.max(offset, update.update_id + 1);
+      const env = normalizeUpdate(update);
+      if (!env) continue;
+      try {
+        await dispatch(env, {
+          ctx,
+          token,
+          masterId: opts.masterId,
+          registry,
+          allowlist: opts.allowlist,
+          pairing: opts.pairing,
+          audit: opts.audit,
+          fetchImpl,
+          ...(opts.agentReply ? { agentReply: opts.agentReply } : {}),
+        });
+      } catch (err) {
+        const msg = (err as Error).message.replace(token, "<redacted>");
+        console.error(`[telegram] dispatch failed: ${msg}`);
+      }
+    }
+  }
 }

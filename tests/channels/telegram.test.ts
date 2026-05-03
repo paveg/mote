@@ -1,11 +1,22 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildPublicRegistry,
   callApi,
-  normalizeUpdate,
-  validateToken,
+  createTelegramGateway,
+  dispatch,
+  type DispatchDeps,
   type FetchFn,
+  type InboundEnvelope,
+  normalizeUpdate,
+  sendMessage,
+  validateToken,
 } from "@/channels/telegram";
+import { loadAllowlist } from "@/channels/telegram-allowlist";
+import { createPairingStore } from "@/channels/telegram-pairing";
+import { createAuditLogger } from "@/channels/telegram-audit";
 import type { LoadedSkill } from "@/skills/types";
 
 const baseFrom = { id: 12345, is_bot: false } as const;
@@ -388,5 +399,331 @@ describe("callApi", () => {
     }
     expect(caught?.message).toContain("https://api.telegram.org/bot<redacted>/getUpdates");
     expect(caught?.message).not.toContain(TOKEN);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test scaffolding
+// ---------------------------------------------------------------------------
+
+async function makeDispatchScaffold(
+  opts: { masterId?: number; agentReply?: DispatchDeps["agentReply"] } = {},
+) {
+  const dir = mkdtempSync(join(tmpdir(), "mote-tg-"));
+  const TOKEN = `1234567890:${"a".repeat(35)}`;
+  const allowlist = await loadAllowlist(join(dir, "allow.json"));
+  const pairing = createPairingStore();
+  const audit = await createAuditLogger(join(dir, "audit.log"), { token: TOKEN });
+
+  const calls: Array<{ chatId: number | string; text: string }> = [];
+  const fetchImpl: FetchFn = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/sendMessage")) {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        chat_id: number | string;
+        text: string;
+      };
+      calls.push({ chatId: body.chat_id, text: body.text });
+    }
+    return new Response(JSON.stringify({ ok: true, result: {} }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  // Minimal AgentContext stub — only what dispatch / defaultAgentReply read.
+  const ctx = {
+    agentId: "test",
+    sessionId: "test-session",
+    workspaceDir: dir,
+    registry: undefined as unknown as never, // unused; dispatch builds its own
+    provider: undefined as unknown as never,
+    state: undefined as unknown as never,
+    opts: undefined as unknown as never,
+    signal: new AbortController().signal,
+    systemPrompt: () => ({ blocks: [] }) as never,
+  };
+
+  const recordedAgentCalls: Array<{ env: InboundEnvelope; registryShape: string[] }> = [];
+  const defaultAgentReplyForTests: DispatchDeps["agentReply"] = async (env, deps) => {
+    recordedAgentCalls.push({
+      env,
+      registryShape: deps.registry.schemas().map((s) => s.name),
+    });
+    return `agent reply to: ${env.body}`;
+  };
+
+  return {
+    dir,
+    token: TOKEN,
+    masterId: opts.masterId ?? 1000,
+    allowlist,
+    pairing,
+    audit,
+    fetchImpl,
+    calls,
+    ctx,
+    deps: {
+      ctx,
+      token: TOKEN,
+      masterId: opts.masterId ?? 1000,
+      registry: buildPublicRegistry([], "claude-haiku-4-5-20251001"),
+      allowlist,
+      pairing,
+      audit,
+      fetchImpl,
+      agentReply: opts.agentReply ?? defaultAgentReplyForTests,
+    } satisfies DispatchDeps,
+    recordedAgentCalls,
+  };
+}
+
+const env = (
+  overrides: Partial<InboundEnvelope> & Pick<InboundEnvelope, "from" | "body">,
+): InboundEnvelope => ({
+  channel: "telegram",
+  timestamp: 1730000000000,
+  ...overrides,
+});
+
+// ---------------------------------------------------------------------------
+// dispatch tests
+// ---------------------------------------------------------------------------
+
+describe("dispatch", () => {
+  describe("master commands", () => {
+    it("/approve <valid-code> adds the userId to the allowlist and replies to both", async () => {
+      const s = await makeDispatchScaffold();
+      const pending = s.pairing.generate(99);
+      await dispatch(env({ from: String(s.masterId), body: `/approve ${pending.code}` }), s.deps);
+      expect(s.allowlist.has(99)).toBe(true);
+      expect(s.calls).toEqual([
+        { chatId: s.masterId, text: "Approved 99." },
+        { chatId: 99, text: "You are now approved. DM me anytime." },
+      ]);
+    });
+
+    it("/approve <expired-code> replies 'Code expired.'", async () => {
+      let now = 0;
+      const pairing = createPairingStore({ ttlMs: 1000, clock: () => now });
+      const dir = mkdtempSync(join(tmpdir(), "mote-tg-"));
+      const TOKEN = `1234567890:${"a".repeat(35)}`;
+      const allowlist = await loadAllowlist(join(dir, "allow.json"));
+      const audit = await createAuditLogger(join(dir, "audit.log"), { token: TOKEN });
+      const calls: Array<{ chatId: number | string; text: string }> = [];
+      const fetchImpl: FetchFn = async (input, init) => {
+        const body = JSON.parse(String(init?.body ?? "{}")) as {
+          chat_id: number | string;
+          text: string;
+        };
+        calls.push({ chatId: body.chat_id, text: body.text });
+        return new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 });
+      };
+      const ctx = {
+        agentId: "x",
+        sessionId: "x",
+        workspaceDir: dir,
+        registry: undefined as unknown as never,
+        provider: undefined as unknown as never,
+        state: undefined as unknown as never,
+        opts: undefined as unknown as never,
+        signal: new AbortController().signal,
+        systemPrompt: () => ({ blocks: [] }) as never,
+      };
+      const pending = pairing.generate(42);
+      now = 2000;
+      await dispatch(env({ from: "1000", body: `/approve ${pending.code}` }), {
+        ctx,
+        token: TOKEN,
+        masterId: 1000,
+        registry: buildPublicRegistry([], "claude-haiku-4-5-20251001"),
+        allowlist,
+        pairing,
+        audit,
+        fetchImpl,
+      });
+      expect(allowlist.has(42)).toBe(false);
+      expect(calls).toEqual([{ chatId: 1000, text: "Code expired." }]);
+    });
+
+    it("/approve <unknown-code> replies 'No pending pairing for that code.'", async () => {
+      const s = await makeDispatchScaffold();
+      const code = "0".repeat(32);
+      await dispatch(env({ from: String(s.masterId), body: `/approve ${code}` }), s.deps);
+      expect(s.calls).toEqual([
+        { chatId: s.masterId, text: "No pending pairing for that code." },
+      ]);
+    });
+
+    it("/revoke <userId> removes from the allowlist and replies", async () => {
+      const s = await makeDispatchScaffold();
+      await s.allowlist.add({ userId: 7, approvedAt: 1 });
+      await dispatch(env({ from: String(s.masterId), body: "/revoke 7" }), s.deps);
+      expect(s.allowlist.has(7)).toBe(false);
+      expect(s.calls).toEqual([{ chatId: s.masterId, text: "Revoked 7." }]);
+    });
+  });
+
+  describe("approved message dispatch", () => {
+    it("master DM (non-command) reaches the agent with the RestrictedRegistry", async () => {
+      const s = await makeDispatchScaffold();
+      await dispatch(env({ from: String(s.masterId), body: "summarize this" }), s.deps);
+      expect(s.recordedAgentCalls).toHaveLength(1);
+      expect(s.recordedAgentCalls[0]?.env.body).toBe("summarize this");
+      // RestrictedRegistry contains only mcp:public skills (none in this scaffold)
+      expect(s.recordedAgentCalls[0]?.registryShape).toEqual([]);
+      expect(s.calls).toEqual([{ chatId: s.masterId, text: "agent reply to: summarize this" }]);
+    });
+
+    it("paired non-master DM reaches the agent with the same RestrictedRegistry", async () => {
+      const s = await makeDispatchScaffold();
+      await s.allowlist.add({ userId: 555, approvedAt: 1 });
+      await dispatch(env({ from: "555", body: "hello" }), s.deps);
+      expect(s.recordedAgentCalls).toHaveLength(1);
+      expect(s.calls).toEqual([{ chatId: 555, text: "agent reply to: hello" }]);
+    });
+
+    it("unsupported content from master replies 'Sorry, text only.' and skips the agent", async () => {
+      const s = await makeDispatchScaffold();
+      await dispatch(env({ from: String(s.masterId), body: "[unsupported: voice]" }), s.deps);
+      expect(s.recordedAgentCalls).toHaveLength(0);
+      expect(s.calls).toEqual([{ chatId: s.masterId, text: "Sorry, text only." }]);
+    });
+
+    it("unsupported content from paired user replies 'Sorry, text only.' and skips the agent", async () => {
+      const s = await makeDispatchScaffold();
+      await s.allowlist.add({ userId: 222, approvedAt: 1 });
+      await dispatch(env({ from: "222", body: "[unsupported: photo]" }), s.deps);
+      expect(s.recordedAgentCalls).toHaveLength(0);
+      expect(s.calls).toEqual([{ chatId: 222, text: "Sorry, text only." }]);
+    });
+  });
+
+  describe("pairing for unknown senders", () => {
+    it("generates a code, DMs the sender + master, and emits a pending-pairing audit event", async () => {
+      const s = await makeDispatchScaffold();
+      await dispatch(env({ from: "8888", body: "hi" }), s.deps);
+      expect(s.allowlist.has(8888)).toBe(false);
+      expect(s.recordedAgentCalls).toHaveLength(0);
+      expect(s.calls).toHaveLength(2);
+      expect(s.calls[0]?.chatId).toBe(8888);
+      expect(s.calls[0]?.text).toMatch(/Pairing code: [0-9a-f]{32}/);
+      expect(s.calls[1]?.chatId).toBe(s.masterId);
+      expect(s.calls[1]?.text).toMatch(/User 8888 is requesting access[\s\S]*\/approve [0-9a-f]{32}/);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createTelegramGateway tests
+// ---------------------------------------------------------------------------
+
+describe("createTelegramGateway", () => {
+  it("exits cleanly when abort is fired immediately", async () => {
+    const ctrl = new AbortController();
+    ctrl.abort();
+    const dir = mkdtempSync(join(tmpdir(), "mote-tg-"));
+    const TOKEN = `1234567890:${"a".repeat(35)}`;
+    const allowlist = await loadAllowlist(join(dir, "allow.json"));
+    const audit = await createAuditLogger(join(dir, "audit.log"), { token: TOKEN });
+    const fetchImpl: FetchFn = async () =>
+      new Response(JSON.stringify({ ok: true, result: [] }), { status: 200 });
+
+    const ctx = {
+      agentId: "x",
+      sessionId: "x",
+      workspaceDir: dir,
+      registry: undefined as unknown as never,
+      provider: undefined as unknown as never,
+      state: undefined as unknown as never,
+      opts: undefined as unknown as never,
+      signal: ctrl.signal,
+      systemPrompt: () => ({ blocks: [] }) as never,
+    };
+
+    await createTelegramGateway(ctx, {
+      token: TOKEN,
+      masterId: 1000,
+      skills: [],
+      allowlist,
+      pairing: createPairingStore(),
+      audit,
+      model: "claude-haiku-4-5-20251001",
+      abort: ctrl.signal,
+      fetchImpl,
+    });
+    // If we get here, the loop honored the abort signal at the top check.
+    expect(true).toBe(true);
+  });
+
+  it("dispatches one update then exits when abort fires", async () => {
+    const ctrl = new AbortController();
+    const dir = mkdtempSync(join(tmpdir(), "mote-tg-"));
+    const TOKEN = `1234567890:${"a".repeat(35)}`;
+    const allowlist = await loadAllowlist(join(dir, "allow.json"));
+    const audit = await createAuditLogger(join(dir, "audit.log"), { token: TOKEN });
+    const sendMessageCalls: Array<{ chatId: number | string; text: string }> = [];
+    let pollCount = 0;
+    const fetchImpl: FetchFn = async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/getUpdates")) {
+        pollCount += 1;
+        if (pollCount === 1) {
+          // Return one master DM, then trip abort so the next iteration exits.
+          ctrl.abort();
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              result: [
+                {
+                  update_id: 1,
+                  message: {
+                    message_id: 1,
+                    from: { id: 1000, is_bot: false },
+                    chat: { id: 1000, type: "private" },
+                    date: 1,
+                    text: "hi",
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, result: [] }), { status: 200 });
+      }
+      if (url.endsWith("/sendMessage")) {
+        const body = JSON.parse(String(init?.body ?? "{}")) as {
+          chat_id: number;
+          text: string;
+        };
+        sendMessageCalls.push({ chatId: body.chat_id, text: body.text });
+      }
+      return new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 });
+    };
+    const ctx = {
+      agentId: "x",
+      sessionId: "x",
+      workspaceDir: dir,
+      registry: undefined as unknown as never,
+      provider: undefined as unknown as never,
+      state: undefined as unknown as never,
+      opts: undefined as unknown as never,
+      signal: ctrl.signal,
+      systemPrompt: () => ({ blocks: [] }) as never,
+    };
+    await createTelegramGateway(ctx, {
+      token: TOKEN,
+      masterId: 1000,
+      skills: [],
+      allowlist,
+      pairing: createPairingStore(),
+      audit,
+      model: "claude-haiku-4-5-20251001",
+      abort: ctrl.signal,
+      fetchImpl,
+      agentReply: async (env) => `echo: ${env.body}`,
+    });
+    expect(sendMessageCalls).toEqual([{ chatId: 1000, text: "echo: hi" }]);
   });
 });
