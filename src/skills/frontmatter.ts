@@ -50,6 +50,9 @@ export function parseFrontmatter(content: string): ParsedFrontmatter {
     if (key === "") {
       throw new Error(`frontmatter: line ${i + 1} has empty key`);
     }
+    if (key in fields) {
+      throw new Error(`frontmatter: duplicate key "${key}" at line ${i + 1}`);
+    }
     fields[key] = unquote(rawValue);
   }
 

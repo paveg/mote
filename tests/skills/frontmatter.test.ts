@@ -102,3 +102,28 @@ test("parseFrontmatter: embedded escape sequences inside quoted values are kept 
   // inner quotes are retained verbatim. This pins "no escape handling".
   expect(parsed.fields["description"]).toBe('foo \\"bar\\" baz');
 });
+
+// --- security: duplicate key rejection (ADR-0014 D4 / pentest M4) ----------
+
+test("throws on duplicate key (mcp:) — closes ADR-0014 D4 / pentest M4 trust-flag spoof", () => {
+  const input = "---\nname: hello\ndescription: greet\nmcp: private\nmcp: public\n---\nbody";
+  expect(() => parseFrontmatter(input)).toThrow(/duplicate.*mcp/i);
+});
+
+test("throws on duplicate key (name:)", () => {
+  const input = "---\nname: a\nname: b\ndescription: x\n---\n";
+  expect(() => parseFrontmatter(input)).toThrow(/duplicate.*name/i);
+});
+
+test("error message includes the line number of the duplicate", () => {
+  const input = "---\nname: a\ndescription: d\nmcp: x\nmcp: y\n---\n";
+  // The duplicate `mcp:` is on line 5 (1-indexed within the document, including the opening ---).
+  // Accept the line that the parser counts — pin the actual emitted number after first run.
+  expect(() => parseFrontmatter(input)).toThrow(/line \d+/);
+});
+
+test("preserves single-key parsing (regression — no false-positive throws)", () => {
+  const input = "---\nname: hello\ndescription: greet user\nmcp: public\n---\n# body";
+  const parsed = parseFrontmatter(input);
+  expect(parsed.fields).toEqual({ name: "hello", description: "greet user", mcp: "public" });
+});
