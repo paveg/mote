@@ -9,6 +9,7 @@
   },
   "scripts": {
     "agent": "bun run src/entry/agent.ts",
+    "gateway": "bun run src/entry/gateway.ts",
     "mcp-serve": "bun run src/entry/mcp-serve.ts",
     "a2a-serve": "bun run src/entry/a2a-serve.ts",
     "a2a-deploy": "wrangler deploy",
