@@ -141,6 +141,16 @@ test("searchSessions matches only text content, not tool_use input", async () =>
   expect(await state.searchSessions("tool-input-marker")).toEqual([]);
 });
 
+test("schema includes parent_session_id on the sessions table", () => {
+  // Use the bun:sqlite raw query to introspect — exposes the migration
+  // path without needing a public API.
+  const cols = (state as unknown as { db: import("bun:sqlite").Database }).db
+    .query<{ name: string }, []>("PRAGMA table_info(sessions)")
+    .all();
+  const names = cols.map(c => c.name);
+  expect(names).toContain("parent_session_id");
+});
+
 test("searchSessions does not crash on FTS5 special tokens or operators", async () => {
   await state.appendMessages("s", [makeMessage("hello world")]);
 

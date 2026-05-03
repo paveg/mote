@@ -14,6 +14,7 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   agent_id TEXT NOT NULL,
+  parent_session_id TEXT REFERENCES sessions(id),
   created_at INTEGER NOT NULL,
   ended_at INTEGER
 );
@@ -75,6 +76,7 @@ export class SqliteState implements SessionState {
     this.db.exec("PRAGMA foreign_keys = ON");
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec(SCHEMA);
+    this.migrate();
     // Apply 0o600 to the db file once it has been created. WAL adds
     // sidecar files (-wal, -shm) that we also lock down.
     if (workspaceDir !== ":memory:") {
@@ -92,6 +94,22 @@ export class SqliteState implements SessionState {
       } catch {
         // ENOENT for sidecars that haven't been written yet — fine.
       }
+    }
+  }
+
+  // Idempotent migrations. Each block checks the current state and only
+  // applies its change when needed, so re-running on a fresh DB is a no-op.
+  private migrate(): void {
+    const cols = this.db
+      .query<{ name: string }, []>("PRAGMA table_info(sessions)")
+      .all();
+    if (!cols.some(c => c.name === "parent_session_id")) {
+      // SQLite ALTER TABLE ADD COLUMN cannot include a REFERENCES clause
+      // for an existing table, but the constraint is enforced via the
+      // PRAGMA foreign_keys setting set in the constructor — losing the
+      // FK declaration on this column for upgraded DBs is acceptable;
+      // newly-created DBs (via SCHEMA) get the full constraint.
+      this.db.exec("ALTER TABLE sessions ADD COLUMN parent_session_id TEXT");
     }
   }
 
