@@ -24,6 +24,8 @@ const stubAgentContext = (workspaceDir: string): AgentContext =>
       async appendMessages(_s: string, _m: unknown[]) {},
       async loadLatestSession() { return []; },
       async searchSessions(_q: string, _l?: number) { return []; },
+      async listSessions() { return []; },
+      async getSession(_id: string, _limit: number) { return { messages: [], truncated: false }; },
     },
     opts: {
       maxIterations: 5,

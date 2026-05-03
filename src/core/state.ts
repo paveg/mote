@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import type { Message } from "@/core/types";
-import type { SessionState } from "@/core/context";
+import type { SessionState, SessionMeta, GetSessionResult } from "@/core/context";
 
 // Schema. content_json is the full ContentBlock[] as JSON; fts_text is
 // the denormalized concatenated text used for FTS5 indexing. The FTS
@@ -215,6 +215,50 @@ export class SqliteState implements SessionState {
       snippet: r.snippet,
       createdAt: r.created_at,
     }));
+  }
+
+  async listSessions(): Promise<SessionMeta[]> {
+    const rows = this.db
+      .query<
+        { id: string; created_at: number; ended_at: number | null },
+        []
+      >(
+        "SELECT id, created_at, ended_at FROM sessions ORDER BY created_at DESC, id DESC",
+      )
+      .all();
+    return rows.map(r => ({
+      id: r.id,
+      createdAt: r.created_at,
+      endedAt: r.ended_at,
+    }));
+  }
+
+  async getSession(sessionId: string, limit: number): Promise<GetSessionResult> {
+    // Count first to know if we'll truncate
+    const total = this.db
+      .query<{ n: number }, [string]>(
+        "SELECT COUNT(*) AS n FROM messages WHERE session_id = ?",
+      )
+      .get(sessionId);
+    const count = total?.n ?? 0;
+    const truncated = count > limit;
+
+    // Fetch the most recent `limit` messages, then reverse to chronological order
+    const rows = this.db
+      .query<
+        { role: "user" | "assistant" | "system"; content_json: string; created_at: number },
+        [string, number]
+      >(
+        "SELECT role, content_json, created_at FROM messages WHERE session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?",
+      )
+      .all(sessionId, limit);
+    rows.reverse();
+    const messages: Message[] = rows.map(r => ({
+      role: r.role,
+      content: JSON.parse(r.content_json),
+      createdAt: r.created_at,
+    }));
+    return { messages, truncated };
   }
 
   // Closes the underlying connection. Tests call this in afterEach to

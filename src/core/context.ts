@@ -4,6 +4,17 @@ import type { ToolRegistry } from "@/core/registry";
 import type { SearchHit } from "@/core/state";
 import type { MemoryNudge } from "@/core/memory-nudge";
 
+export interface SessionMeta {
+  readonly id: string;
+  readonly createdAt: number;
+  readonly endedAt: number | null;
+}
+
+export interface GetSessionResult {
+  readonly messages: ReadonlyArray<Message>;
+  readonly truncated: boolean;
+}
+
 // SessionState's full surface lands in M0 task #4 (state.ts). Declared here
 // so registry/handlers can typecheck against the contract right now;
 // the implementing class will satisfy this interface.
@@ -11,6 +22,9 @@ export interface SessionState {
   appendMessages(sessionId: string, messages: Message[]): Promise<void>;
   loadLatestSession(): Promise<Message[]>;
   searchSessions(query: string, limit?: number): Promise<SearchHit[]>;
+  // ADR-0009 D4: list and retrieve sessions for MCP tools
+  listSessions(): Promise<SessionMeta[]>;
+  getSession(sessionId: string, limit: number): Promise<GetSessionResult>;
 }
 
 // The context every tool handler and the agent loop receives.

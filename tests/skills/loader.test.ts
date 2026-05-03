@@ -92,6 +92,32 @@ test("loadSkills ignores files in skills/ that are not named SKILL.md", async ()
   expect(skills[0]?.name).toBe("withaux");
 });
 
+// --- mcp field -----------------------------------------------------------
+
+test("loadSkills reads `mcp: public` from frontmatter", async () => {
+  await writeSkill(
+    "pub",
+    `---\nname: pub\ndescription: d\nmcp: public\n---\nbody`,
+  );
+  const skills = await loadSkills(workspaceDir);
+  expect(skills).toHaveLength(1);
+  expect(skills[0]?.mcp).toBe("public");
+});
+
+test("loadSkills defaults `mcp` to private when absent", async () => {
+  await writeSkill("default", `---\nname: default\ndescription: d\n---\nbody`);
+  const skills = await loadSkills(workspaceDir);
+  expect(skills[0]?.mcp).toBe("private");
+});
+
+test("loadSkills rejects an invalid `mcp` value", async () => {
+  await writeSkill(
+    "bad",
+    `---\nname: bad\ndescription: d\nmcp: yes-please\n---\nbody`,
+  );
+  await expect(loadSkills(workspaceDir)).rejects.toThrow(/invalid `mcp` field/);
+});
+
 // --- boundary: malformed skill positioned between two valid skills --------
 
 test("loadSkills throws on a malformed skill positioned between two valid skills", async () => {

@@ -175,6 +175,79 @@ test("SqliteState supports :memory: mode for tests with no fs side effects", asy
   }
 });
 
+// --- listSessions ---------------------------------------------------------
+
+test("listSessions returns sessions ordered by created_at DESC", async () => {
+  const t = Date.now();
+  await state.appendMessages("s_old", [
+    { role: "user", content: [{ type: "text", text: "old" }], createdAt: t },
+  ]);
+  await new Promise(r => setTimeout(r, 5));
+  await state.appendMessages("s_new", [
+    { role: "user", content: [{ type: "text", text: "new" }], createdAt: t + 100 },
+  ]);
+
+  const meta = await state.listSessions();
+  expect(meta).toHaveLength(2);
+  expect(meta[0]?.id).toBe("s_new");
+  expect(meta[1]?.id).toBe("s_old");
+});
+
+test("listSessions returns [] when no sessions exist", async () => {
+  expect(await state.listSessions()).toEqual([]);
+});
+
+// --- getSession ----------------------------------------------------------
+
+test("getSession returns messages chronologically with truncated:false when count <= limit", async () => {
+  for (let i = 0; i < 3; i++) {
+    await state.appendMessages("s", [
+      {
+        role: "user",
+        content: [{ type: "text", text: `msg-${i}` }],
+        createdAt: Date.now() + i,
+      },
+    ]);
+  }
+  const result = await state.getSession("s", 10);
+  expect(result.truncated).toBe(false);
+  expect(result.messages).toHaveLength(3);
+  // chronological order
+  const texts = result.messages.map(m => {
+    const b = m.content[0];
+    if (!b || b.type !== "text") throw new Error("expected text");
+    return b.text;
+  });
+  expect(texts).toEqual(["msg-0", "msg-1", "msg-2"]);
+});
+
+test("getSession returns the most-recent N messages with truncated:true when over limit", async () => {
+  for (let i = 0; i < 5; i++) {
+    await state.appendMessages("s", [
+      {
+        role: "user",
+        content: [{ type: "text", text: `msg-${i}` }],
+        createdAt: Date.now() + i,
+      },
+    ]);
+  }
+  const result = await state.getSession("s", 3);
+  expect(result.truncated).toBe(true);
+  expect(result.messages).toHaveLength(3);
+  // Should be the last 3 (msg-2, msg-3, msg-4) in chronological order
+  const texts = result.messages.map(m => {
+    const b = m.content[0];
+    if (!b || b.type !== "text") throw new Error("expected text");
+    return b.text;
+  });
+  expect(texts).toEqual(["msg-2", "msg-3", "msg-4"]);
+});
+
+test("getSession on non-existent sessionId returns empty messages, truncated:false", async () => {
+  const result = await state.getSession("s_missing", 10);
+  expect(result).toEqual({ messages: [], truncated: false });
+});
+
 // --- boundary: loadLatestSession tie-break --------------------------------
 
 test("loadLatestSession is deterministic when two sessions share created_at", async () => {

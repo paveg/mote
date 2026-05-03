@@ -13,6 +13,8 @@ test("AgentContext can be constructed as an object literal satisfying the interf
     async searchSessions(_query, _limit) {
       return [];
     },
+    async listSessions() { return []; },
+    async getSession(_id, _limit) { return { messages: [], truncated: false }; },
   };
 
   // We do not need a working ToolRegistry / Provider for this test; we
@@ -46,6 +48,8 @@ test("SessionState round-trips an empty messages array", async () => {
     async searchSessions(_query: string, _limit?: number) {
       return [];
     },
+    async listSessions() { return []; },
+    async getSession(_id: string, _limit: number) { return { messages: [], truncated: false }; },
   };
   await state.appendMessages("s_1", []);
   expect(await state.loadLatestSession()).toEqual([]);

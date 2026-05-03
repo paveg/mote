@@ -6,4 +6,5 @@ export interface LoadedSkill {
   readonly description: string; // from frontmatter; shown to the LLM as the tool description
   readonly body: string;        // the markdown content after the closing `---`
   readonly path: string;        // absolute path to the SKILL.md file (for diagnostics)
+  readonly mcp: "public" | "private"; // ADR-0009 D3: default "private" when absent from frontmatter
 }

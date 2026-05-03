@@ -28,6 +28,8 @@ const stubAgentContext = (workspaceDir: string): AgentContext =>
       async searchSessions(_q, _l) {
         return [];
       },
+      async listSessions() { return []; },
+      async getSession(_id, _limit) { return { messages: [], truncated: false }; },
     },
     opts: {
       maxIterations: 10,

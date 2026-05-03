@@ -51,7 +51,19 @@ export async function loadSkills(workspaceDir: string): Promise<LoadedSkill[]> {
     }
     seen.set(name, path);
 
-    skills.push({ name, description, body: parsed.body, path });
+    const mcpRaw = parsed.fields["mcp"];
+    let mcp: "public" | "private";
+    if (mcpRaw === undefined) {
+      mcp = "private"; // ADR-0009 D3 default
+    } else if (mcpRaw === "public" || mcpRaw === "private") {
+      mcp = mcpRaw;
+    } else {
+      throw new Error(
+        `skill at ${path}: invalid \`mcp\` field "${mcpRaw}" — must be "public" or "private"`,
+      );
+    }
+
+    skills.push({ name, description, body: parsed.body, path, mcp });
   }
 
   return skills;
