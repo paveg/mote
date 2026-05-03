@@ -69,7 +69,7 @@ export const memoryEditTool: ToolDefinition<typeof EditArgs> = {
     if (occurrences > 1) {
       return `[error] memory_edit: \`find\` appears ${occurrences} times; pass a longer substring that uniquely identifies the target.`;
     }
-    const next = existing.replace(args.find, args.replace);
+    const next = existing.replace(args.find, () => args.replace);
     try {
       await writeFile(path, next + "\n", { mode: 0o600 });
       await chmod(path, 0o600);

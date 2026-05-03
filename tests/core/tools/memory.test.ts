@@ -191,3 +191,52 @@ test("memory_append accepts a single newline (whitespace-only) and writes it as-
   const content = await readFile(join(workspaceDir, "MEMORY.md"), "utf8");
   expect(content.length).toBeGreaterThan(0);
 });
+
+// --- security: $ pattern neutralization in memory_edit -------------------
+
+test("memory_edit treats `$&` in replace as a literal, not as the matched substring", async () => {
+  await memoryAppendTool.handler({ text: "abc" }, ctx);
+  const result = await memoryEditTool.handler(
+    { find: "abc", replace: "$& - $&" },
+    ctx,
+  );
+  expect(result).toMatch(/^Replaced/);
+  const content = await readFile(join(workspaceDir, "MEMORY.md"), "utf8");
+  // Must be the literal string "$& - $&", NOT "abc - abc".
+  expect(content).toBe("$& - $&\n");
+});
+
+test("memory_edit treats `$$` in replace as a literal", async () => {
+  await memoryAppendTool.handler({ text: "x" }, ctx);
+  const result = await memoryEditTool.handler(
+    { find: "x", replace: "$$y" },
+    ctx,
+  );
+  expect(result).toMatch(/^Replaced/);
+  const content = await readFile(join(workspaceDir, "MEMORY.md"), "utf8");
+  // Must be the literal string "$$y", NOT "$y".
+  expect(content).toBe("$$y\n");
+});
+
+test("memory_edit treats `$'` in replace as a literal", async () => {
+  await memoryAppendTool.handler({ text: "abcDEF" }, ctx);
+  const result = await memoryEditTool.handler(
+    { find: "abc", replace: "[$'rest]" },
+    ctx,
+  );
+  expect(result).toMatch(/^Replaced/);
+  const content = await readFile(join(workspaceDir, "MEMORY.md"), "utf8");
+  // Must be the literal string "[$'rest]DEF", NOT the post-match substring.
+  expect(content).toBe("[$'rest]DEF\n");
+});
+
+test("memory_edit normal case (no $ patterns) still works", async () => {
+  await memoryAppendTool.handler({ text: "old value" }, ctx);
+  const result = await memoryEditTool.handler(
+    { find: "old", replace: "new" },
+    ctx,
+  );
+  expect(result).toMatch(/^Replaced/);
+  const content = await readFile(join(workspaceDir, "MEMORY.md"), "utf8");
+  expect(content).toBe("new value\n");
+});
